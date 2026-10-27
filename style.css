@@ -127,6 +127,11 @@ textarea { width: 100%; min-height: 76px; font: inherit; font-size: 15px; paddin
 .empty { color: var(--ink2); padding: 18px 0; text-align: center; font-size: 15px; }
 .toast { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0)); transform: translateX(-50%); background: var(--ink); color: var(--card); padding: 8px 18px; font-size: 14px; border-radius: 999px; z-index: 9; }
 
+/* 閱讀題組短文 */
+details.psg { background: var(--soft); border-radius: 12px; padding: 4px 12px; margin: 10px 0 4px; }
+details.psg > summary { cursor: pointer; color: var(--accent); font-size: 14px; font-weight: 700; padding: 6px 0; }
+.psg-t { font-family: var(--serif); font-size: 16px; line-height: 1.85; white-space: pre-line; padding: 2px 0 10px; overflow-wrap: anywhere; }
+
 /* 列印預覽與列印 */
 .preview { background: #fff; color: #000; border-radius: 6px; padding: 16px; box-shadow: var(--shadow); overflow-x: auto; }
 .pp { font-family: "Noto Serif TC", "PMingLiU", "Songti TC", serif; color: #000; font-size: var(--pfs, 10pt); line-height: 1.55; }
@@ -134,6 +139,7 @@ textarea { width: 100%; min-height: 76px; font: inherit; font-size: 15px; paddin
 .pp-h b { font-weight: 700; }
 .pp-mcq.two { column-count: 2; column-gap: 6mm; column-rule: .4pt solid #bbb; }
 .pp-q { break-inside: avoid; margin: 0 0 2.4mm; }
+.pp-p { margin: 1mm 0 2.4mm; padding: 1.5mm 2mm; border: .5pt solid #999; white-space: pre-line; text-align: justify; }
 .pp-q .qt { display: grid; grid-template-columns: 2.2em 1fr; }
 .pp-o { display: flex; flex-wrap: wrap; padding-left: 2.2em; }
 .pp-o span { padding-right: 2mm; }

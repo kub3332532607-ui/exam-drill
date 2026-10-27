@@ -39,6 +39,17 @@
   function chapter(sid, cid) { return chapters(sid).filter(function (c) { return c.id === cid; })[0]; }
   function essay(id) { return KS.essays.filter(function (e) { return e.id === id; })[0]; }
   function qid(e, n) { return e.id + "#" + n; }
+  // 答案可為單一索引或陣列（更正答案「均給分」）
+  function ok(q, i) { return Array.isArray(q.a) ? q.a.indexOf(i) >= 0 : i === q.a; }
+  function ansText(q) { return (Array.isArray(q.a) ? q.a : [q.a]).map(function (i) { return LET[i]; }).join(" 或 "); }
+  function qno(it) { return it.q.no || it.n; }
+  function passage(it) { return it.q.g && it.e.passages ? it.e.passages[it.q.g] : null; }
+  function passageBox(it, open) {
+    var t = passage(it); if (!t) return null;
+    var d = h("details", { class: "psg" }, h("summary", { text: "短文（第 " + it.q.g + " 題起）" }), h("div", { class: "psg-t", text: t }));
+    if (open) d.open = true;
+    return d;
+  }
   function stat(e, n) { return S.stats[qid(e, n)]; }
   function record(e, n, ok) {
     var k = qid(e, n), s = S.stats[k] || { w: 0, c: 0 };
@@ -149,7 +160,7 @@
       ex.forEach(function (e) {
         var set = getSet("e:" + e.id), ct = counts(set.items), la = lastAttempt(set.key);
         body.appendChild(h("a", { class: "row", href: "#/x/" + e.id },
-          h("div", null, h("div", { class: "nm", text: e.short }), h("div", { class: "sub", text: e.questions.length + " 題・" + (la ? "上次 " + la.score + " 分" : "還沒對過答案") })),
+          h("div", null, h("div", { class: "nm", text: e.short }), h("div", { class: "small", text: e.name }), h("div", { class: "sub", text: e.questions.length + " 題・" + (la ? "上次 " + la.score + " 分" : "還沒對過答案") })),
           ct.wrong ? h("span", { class: "pill red", text: "錯 " + ct.wrong }) : h("span", { class: "go", text: "›" })));
       });
     } else {
@@ -173,7 +184,7 @@
     if (c) head.appendChild(h("div", { class: "muted", text: "先讀完下面的重點，再寫本章考古題。" }));
     nodes.push(head);
     if (c) {
-      var rv = h("div", { class: "card" }, h("div", { class: "h2", text: "複習" }));
+      var rv = h("div", { class: "card" }, h("div", { class: "h2", text: "考點複習" }));
       c.sections.forEach(function (sec, i) {
         var mq = set.items.filter(function (it) { return it.q.sec === sec.id; }).length;
         var eq = es.filter(function (x) { return x.sec === sec.id; });
@@ -216,7 +227,7 @@
     var e = exam(id), key = "e:" + id, set = getSet(key), ct = counts(set.items), la = lastAttempt(key);
     show(topbar("#/s/" + e.subject + "/ex", subj(e.subject).name),
       h("div", { class: "card" }, h("div", { class: "eyebrow", text: e.title }), h("div", { class: "title", text: e.short + " " + e.name }),
-        h("div", { class: "muted", text: e.questions.length + " 題・每題 " + e.perScore + " 分・已做 " + ct.done + "・錯 " + ct.wrong }),
+        h("div", { class: "muted", text: e.questions.length + " 題・" + (e.perScore ? "每題 " + e.perScore + " 分" : (e.part || "以百分制計分")) + "・已做 " + ct.done + "・錯 " + ct.wrong }),
         la ? h("div", { style: "margin-top:10px" }, h("span", { class: "verdict " + (la.score >= 60 ? "ok" : "no"), text: "上次 " + la.score + " 分" })) : null,
         h("div", { class: "btns" }, h("a", { class: "btn", href: "#/print/" + key, text: "列印試卷" }), h("a", { class: "btn soft", href: "#/g/" + key, text: "對答案" }), h("a", { class: "btn soft", href: "#/p/" + key + "/1", text: "在手機上寫" }))));
   }
@@ -234,14 +245,15 @@
     var k = qid(it.e, it.n), pk = picked[k], q = it.q;
     var opts = h("div", { class: "opts" });
     q.o.forEach(function (_, i) {
-      var cls = pk == null ? "" : i === q.a ? "right" : i === pk ? "wrong" : "dim";
-      opts.appendChild(optBtn(q, i, cls, pk == null ? function () { picked[k] = i; record(it.e, it.n, i === q.a); save(); viewPractice(key, n); } : null));
+      var cls = pk == null ? "" : ok(q, i) ? "right" : i === pk ? "wrong" : "dim";
+      opts.appendChild(optBtn(q, i, cls, pk == null ? function () { picked[k] = i; record(it.e, it.n, ok(q, i)); save(); viewPractice(key, n); } : null));
     });
     var card = h("div", { class: "card" },
-      h("div", { class: "qno" }, h("span", { text: n + " / " + set.items.length }), h("span", { text: it.e.short + " 第 " + it.n + " 題" })),
-      h("div", { class: "qtext", text: q.q }), opts);
+      h("div", { class: "qno" }, h("span", { text: n + " / " + set.items.length }), h("span", { text: it.e.short + " 第 " + qno(it) + " 題" })),
+      passageBox(it, true), q.q ? h("div", { class: "qtext", text: q.q }) : null, opts);
     if (pk != null) {
-      card.appendChild(h("div", { style: "margin-top:14px" }, h("span", { class: "verdict " + (pk === q.a ? "ok" : "no"), text: pk === q.a ? "答對了" : "答錯，正解是 " + LET[q.a] })));
+      card.appendChild(h("div", { style: "margin-top:14px" }, h("span", { class: "verdict " + (ok(q, pk) ? "ok" : "no"), text: ok(q, pk) ? "答對了" : "答錯，正解是 " + ansText(q) })));
+      if (q.note) card.appendChild(h("div", { class: "small", style: "margin-top:6px", text: "考選部更正：" + q.note }));
       card.appendChild(h("p", null, h("a", { class: "link-out", href: search(q), target: "_blank", rel: "noopener", text: "到阿摩看考生詳解 ↗" })));
       card.appendChild(noteBox(it));
     }
@@ -282,9 +294,9 @@
       h("div", { class: "h2", text: "輸入你在紙上寫的答案" }), h("div", { class: "small", text: "題號和列印出來的順序一樣。沒寫的留空。" }),
       h("div", { class: "sticky" }, cnt, h("span", { class: "small", text: set.title })), grid,
       h("div", { class: "btns" }, h("button", { class: "btn", text: "對答案", onclick: function () {
-        var ok = 0;
-        set.items.forEach(function (it, idx) { var a = ans[idx + 1], r = a === it.q.a; record(it.e, it.n, r); if (r) ok++; });
-        S.attempts.push({ set: key, ts: Date.now(), correct: ok, total: set.items.length, score: set.perScore ? ok * set.perScore : Math.round(ok / set.items.length * 100), ans: JSON.parse(JSON.stringify(ans)), items: set.items.map(function (it) { return qid(it.e, it.n); }) });
+        var okc = 0;
+        set.items.forEach(function (it, idx) { var a = ans[idx + 1], r = a != null && ok(it.q, a); record(it.e, it.n, r); if (r) okc++; });
+        S.attempts.push({ set: key, ts: Date.now(), correct: okc, total: set.items.length, score: set.perScore ? okc * set.perScore : Math.round(okc / set.items.length * 100), ans: JSON.parse(JSON.stringify(ans)), items: set.items.map(function (it) { return qid(it.e, it.n); }) });
         save(); delete drafts[key]; delete frozen[key]; go("#/r/" + key);
       } }))));
   }
@@ -294,17 +306,17 @@
       h("div", { class: "score" }, String(a.score), h("small", { text: " 分　答對 " + a.correct + " / " + a.total })));
     var wl = h("div", { class: "card" });
     var its = a.items ? itemsFromIds(a.items) : set.items;
-    var miss = its.map(function (it, i) { return { it: it, mine: a.ans[i + 1], n: i + 1 }; }).filter(function (x) { return x.mine !== x.it.q.a; });
+    var miss = its.map(function (it, i) { return { it: it, mine: a.ans[i + 1], n: i + 1 }; }).filter(function (x) { return x.mine == null || !ok(x.it.q, x.mine); });
     wl.appendChild(h("div", { class: "h2", text: miss.length ? "要訂正的題目（" + miss.length + "）" : "全對，太好了" }));
     miss.forEach(function (x) { wl.appendChild(wrongBlock(x.it, x.mine, x.n)); });
     show(topbar(set.back, set.title), card, wl);
   }
   function wrongBlock(it, mine, no) {
     var q = it.q, opts = h("div", { class: "opts" });
-    q.o.forEach(function (_, i) { opts.appendChild(optBtn(q, i, i === q.a ? "right" : i === mine ? "wrong" : "dim", null)); });
+    q.o.forEach(function (_, i) { opts.appendChild(optBtn(q, i, ok(q, i) ? "right" : i === mine ? "wrong" : "dim", null)); });
     return h("div", { class: "wq" },
-      h("div", { class: "qno" }, h("span", { text: (no ? "第 " + no + " 題・" : "") + it.e.short + " #" + it.n }), h("span", { text: mine == null && no ? "未作答" : "" })),
-      h("div", { class: "qtext", text: q.q }), opts,
+      h("div", { class: "qno" }, h("span", { text: (no ? "第 " + no + " 題・" : "") + it.e.short + " #" + qno(it) }), h("span", { text: mine == null && no ? "未作答" : "" })),
+      passageBox(it, false), q.q ? h("div", { class: "qtext", text: q.q }) : null, opts, q.note ? h("div", { class: "small", text: "考選部更正：" + q.note }) : null,
       h("p", null, h("a", { class: "link-out", href: search(q), target: "_blank", rel: "noopener", text: "到阿摩看考生詳解 ↗" })), noteBox(it));
   }
 
@@ -371,7 +383,11 @@
     if (!onlyEs) {
       var box = h("div", { class: "pp-mcq" + (P.cols === 2 ? " two" : "") });
       var lim = P.cols === 2 ? [3, 10] : [8, 22];
+      var lastP = null;
       set.items.forEach(function (it, i) {
+        var pt = passage(it);
+        if (pt && pt !== lastP) box.appendChild(h("div", { class: "pp-p" }, h("span", { text: pt })));
+        lastP = pt;
         var mx = Math.max.apply(null, it.q.o.map(function (t) { return t.length; }));
         var w = mx <= lim[0] ? "w4" : mx <= lim[1] ? "w2" : "w1";
         var o = h("div", { class: "pp-o " + w });
