@@ -6,14 +6,15 @@
   // ---------- 儲存 ----------
   var KEY = "ks_v1";
   // marks：課文畫線 {節id: [{id,p,q,o,note,rep,sent,ts}]}；repq：題目訂正要回報 {題id: {sent,ts}}；read：閱讀設定
-  var S = { stats: {}, attempts: [], notes: {}, essay: {}, theme: "", print: {}, marks: {}, repq: {}, read: {} };
+  // nts：題目訂正的修改時間；del：已刪除畫線的墓碑 {畫線id: 時間}（同步時避免已刪的畫線復活）
+  var S = { stats: {}, attempts: [], notes: {}, nts: {}, essay: {}, theme: "", print: {}, marks: {}, repq: {}, read: {}, del: {} };
   function load() {
     try { var j = JSON.parse(localStorage.getItem(KEY)); if (j) S = Object.assign(S, j); } catch (e) {}
     migrate();
   }
   function migrate() {
     S.attempts.forEach(function (a) { if (!a.set && a.exam) a.set = "e:" + a.exam; });
-    S.essay = S.essay || {}; S.print = S.print || {}; S.marks = S.marks || {}; S.repq = S.repq || {}; S.read = S.read || {};
+    S.essay = S.essay || {}; S.print = S.print || {}; S.marks = S.marks || {}; S.repq = S.repq || {}; S.read = S.read || {}; S.nts = S.nts || {}; S.del = S.del || {};
   }
   function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
   function applyTheme() { if (S.theme) document.documentElement.setAttribute("data-theme", S.theme); else document.documentElement.removeAttribute("data-theme"); }
@@ -123,9 +124,47 @@
       h("div", { class: "card" }, h("div", { class: "eyebrow", text: "一般行政" }), h("div", { class: "title", text: "今天讀哪一科？" }), h("div", { class: "muted", text: wr ? "錯題本裡還有 " + wr + " 題等你回來。" : "先複習一章，再寫那一章的考古題。" })),
       h("div", { class: "card" }, rows),
       rp ? h("a", { class: "card row rep-card", href: "#/rep" }, h("div", null, h("div", { class: "nm", text: "回報給 Claude" }), h("div", { class: "sub", text: rp + " 則訂正等著補進課文" })), h("span", { class: "pill blue", text: String(rp) })) : null,
-      h("div", { class: "card" }, h("div", { class: "h2", text: "備份" }), h("div", { class: "small", text: "進度只存在這支手機的瀏覽器。換裝置前先匯出，到新裝置匯入。" }),
+      syncCard(),
+      h("div", { class: "card" }, h("div", { class: "h2", text: "備份" }), h("div", { class: "small", text: "進度存在這個瀏覽器。也可以匯出成檔案，到另一台裝置匯入。" }),
         h("div", { class: "btns" }, h("button", { class: "btn soft", text: "匯出進度", onclick: exportData }), h("label", { class: "btn soft", for: "imp", text: "匯入進度" }),
           h("input", { id: "imp", type: "file", accept: "application/json", hidden: true, onchange: importData }))));
+  }
+  // ---------- 雲端同步（私人 Gist） ----------
+  var syncing = false;
+  function syncErr(e) {
+    if (e.status === 401) return "權杖無效或已過期，請重新貼上";
+    if (e.status === 403 || e.status === 404) return "權杖沒有 gist 權限（要用 classic 權杖並勾 gist）";
+    if (e.status === -1) return "雲端資料版本較新，請先重新整理網頁更新程式";
+    if (e.status === 0) return "還沒設定權杖";
+    return "同步失敗，請確認網路後再試";
+  }
+  function doSync(btn) {
+    if (syncing) return; syncing = true;
+    if (btn) { btn.disabled = true; btn.textContent = "同步中…"; }
+    KSSync.sync(S, function (m) { KSSync.FIELDS.forEach(function (k) { S[k] = m[k]; }); migrate(); save(); })
+      .then(function (r) { syncing = false; toast(r.up ? "已同步（有更新上傳）" : "已同步，雲端已是最新"); route(); })
+      .catch(function (e) { syncing = false; toast(syncErr(e)); route(); });
+  }
+  function syncCard() {
+    var c = KSSync.cfg();
+    if (!c.token) {
+      var inp = h("input", { type: "password", class: "tk", placeholder: "貼上權杖 ghp_…", autocomplete: "off", autocapitalize: "off", spellcheck: "false" });
+      return h("div", { class: "card" }, h("div", { class: "h2", text: "雲端同步" }),
+        h("div", { class: "small", text: "手機和電腦的進度、畫線、備註存到你自己的私人 Gist。每台裝置只要貼一次權杖。" }),
+        h("div", { class: "small" }, "① ", h("a", { href: "https://github.com/settings/tokens/new?scopes=gist&description=exam-drill-sync", target: "_blank", rel: "noopener", text: "建立權杖" }), "（Classic，只勾 gist，期限選「No expiration」）　② 複製貼到下面"),
+        inp,
+        h("div", { class: "btns" }, h("button", { class: "btn", text: "啟用並同步", onclick: function () {
+          var t = inp.value.trim(); if (!/^(ghp_|github_pat_|gho_)/.test(t) && t.length < 30) return toast("權杖格式不對");
+          KSSync.setCfg({ token: t }); doSync(null);
+        } })));
+    }
+    var btn = h("button", { class: "btn", text: "立即同步", onclick: function () { doSync(btn); } });
+    return h("div", { class: "card" }, h("div", { class: "h2", text: "雲端同步" }),
+      h("div", { class: "small", text: c.last ? "上次同步：" + new Date(c.last).toLocaleString("zh-TW", { hour12: false, month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "尚未同步" }),
+      h("div", { class: "small", text: "開始前、結束後各按一次。兩邊的進度會合併，不會互相覆蓋。" }),
+      h("div", { class: "btns" }, btn, h("button", { class: "btn soft", text: "停用", onclick: function () {
+        if (confirm("停用後這台裝置不再同步（雲端資料保留）。確定？")) { KSSync.setCfg({}); route(); }
+      } })));
   }
   function exportData() {
     var a = h("a", { href: URL.createObjectURL(new Blob([JSON.stringify(S)], { type: "application/json" })), download: "刷題本進度_" + new Date().toISOString().slice(0, 10) + ".json" });
@@ -267,7 +306,7 @@
   }
   function noteBox(it) {
     var k = qid(it.e, it.n);
-    var ta = h("textarea", { id: "nt_" + k.replace(/\W/g, "_"), placeholder: "貼上喜歡的考生詳解，或寫自己的筆記", oninput: function () { S.notes[k] = ta.value; save(); } });
+    var ta = h("textarea", { id: "nt_" + k.replace(/\W/g, "_"), placeholder: "貼上喜歡的考生詳解，或寫自己的筆記", oninput: function () { S.notes[k] = ta.value; S.nts[k] = Date.now(); save(); } });
     ta.value = S.notes[k] || "";
     var cb = h("input", { type: "checkbox", onchange: function () {
       if (cb.checked) { if (!(S.notes[k] || "").trim()) { cb.checked = false; return toast("先寫訂正內容"); } S.repq[k] = { sent: false, ts: Date.now() }; toast("已加入回報清單"); }
@@ -499,6 +538,7 @@
       var sheet;
       function close(keep) {
         if (keep) {
+          if (mk.note !== ta.value.trim()) mk.mt = Date.now();
           mk.note = ta.value.trim();
           if (cb.checked && !mk.note) { toast("先寫備註，才能回報"); return; }
           if (cb.checked && !(mk.rep && !mk.sent)) { mk.rep = true; mk.sent = false; mk.ts = Date.now(); }
@@ -512,7 +552,7 @@
           h("label", { class: "rep-ck" }, cb, h("span", { text: "回報給 Claude，補進課文" })),
           h("div", { class: "btns" },
             h("button", { class: "btn soft red-t", text: "刪除畫線", onclick: function () {
-              S.marks[MK] = (S.marks[MK] || []).filter(function (x) { return x !== mk; }); close(false);
+              S.marks[MK] = (S.marks[MK] || []).filter(function (x) { return x !== mk; }); S.del[mk.id] = Date.now(); close(false);
             } }),
             h("button", { class: "btn", text: "完成", onclick: function () { close(true); } }))));
       document.body.appendChild(sheet);
