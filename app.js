@@ -185,11 +185,11 @@
     var s = subj(sid), c = chapter(sid, cid), key = "c:" + sid + ":" + cid, set = getSet(key), es = setEssays(key);
     var nodes = [topbar("#/s/" + sid + "/ch", s.name)];
     var idx = chapters(sid).indexOf(c);
-    var head = h("div", { class: "card" }, h("div", { class: "eyebrow", text: c ? "第 " + (idx + 1) + " 章" : s.name }), h("div", { class: "title", text: set.title }));
+    var head = h("div", { class: "card full" }, h("div", { class: "eyebrow", text: c ? "第 " + (idx + 1) + " 章" : s.name }), h("div", { class: "title", text: set.title }));
     if (c) head.appendChild(h("div", { class: "muted", text: "先讀完下面的重點，再寫本章考古題。" }));
     nodes.push(head);
     if (c) {
-      var rv = h("div", { class: "card" }, h("div", { class: "h2", text: "考點複習" })), rr = h("div", { class: "rows" });
+      var rv = h("div", { class: "card col-l" }, h("div", { class: "h2", text: "考點複習" })), rr = h("div", { class: "rows" });
       c.sections.forEach(function (sec, i) {
         var mq = set.items.filter(function (it) { return it.q.sec === sec.id; }).length;
         var mk = (S.marks[mkey(sid, sec.id)] || []).length;
@@ -207,7 +207,7 @@
     if (set.items.length) mc.appendChild(h("div", { class: "btns" },
       h("a", { class: "btn", href: "#/print/" + key, text: "列印本章" }),
       h("a", { class: "btn soft", href: "#/g/" + key, text: "對答案" }),
-      h("a", { class: "btn soft", href: "#/p/" + key + "/1", text: "在手機上寫" })));
+      h("a", { class: "btn soft", href: "#/p/" + key + "/1", text: "線上作答" })));
     nodes.push(mc);
     if (es.length) {
       var ec = h("div", { class: "card" }, h("div", { class: "h2", text: "本章申論題" }));
@@ -231,7 +231,7 @@
       h("div", { class: "card" }, h("div", { class: "eyebrow", text: e.title }), h("div", { class: "title", text: e.short + " " + e.name }),
         h("div", { class: "muted", text: e.questions.length + " 題・" + (e.perScore ? "每題 " + e.perScore + " 分" : (e.part || "以百分制計分")) + "・已做 " + ct.done + "・錯 " + ct.wrong }),
         la ? h("div", { style: "margin-top:10px" }, h("span", { class: "verdict " + (la.score >= 60 ? "ok" : "no"), text: "上次 " + la.score + " 分" })) : null,
-        h("div", { class: "btns" }, h("a", { class: "btn", href: "#/print/" + key, text: "列印試卷" }), h("a", { class: "btn soft", href: "#/g/" + key, text: "對答案" }), h("a", { class: "btn soft", href: "#/p/" + key + "/1", text: "在手機上寫" }))));
+        h("div", { class: "btns" }, h("a", { class: "btn", href: "#/print/" + key, text: "列印試卷" }), h("a", { class: "btn soft", href: "#/g/" + key, text: "對答案" }), h("a", { class: "btn soft", href: "#/p/" + key + "/1", text: "線上作答" }))));
   }
 
   // ---------- 手機作答（逐題） ----------
@@ -371,7 +371,54 @@
   // 沒有 text 的舊章節，用 sec.body 的條列當段落。
   // 畫線用「段落序號＋原句」定位；課文改寫後先找同段，再找全節，都找不到就列為「找不到原句」。
   function paras(sec) { return sec.text || sec.body || []; }
+  // 圖表區塊（不能畫線，但算段落序號）：
+  //  表格："表｜標題\n| 欄 | 欄 |\n|---|---|\n| 格 | 格 |"（標題可省略，直接以「| 」開頭）
+  //  流程："::flow 標題\n步驟｜說明\n步驟｜說明"　時間軸："::timeline 標題\n年份｜事件"
+  function parseBlock(raw) {
+    var lines = raw.split("\n"), cap = "";
+    if (raw.slice(0, 2) === "表｜" || raw.slice(0, 2) === "| ") {
+      if (lines[0].slice(0, 2) === "表｜") cap = lines.shift().slice(2);
+      var rows = lines.filter(function (l) { return /^\|/.test(l) && !/^\|[\s:|-]+\|?$/.test(l); })
+        .map(function (l) { return l.replace(/^\|/, "").replace(/\|\s*$/, "").split("|").map(function (c) { return c.trim(); }); });
+      return { kind: "table", cap: cap, rows: rows };
+    }
+    var m = /^::(flow|timeline) ?(.*)$/.exec(lines[0]);
+    if (m) return { kind: m[1], cap: m[2], items: lines.slice(1).filter(Boolean).map(function (l) { var i = l.indexOf("｜"); return i < 0 ? [l, ""] : [l.slice(0, i), l.slice(i + 1)]; }) };
+    return null;
+  }
+  function inline(t) {   // **粗體** 轉成節點
+    var f = document.createDocumentFragment();
+    t.split("**").forEach(function (x, i) { if (x) f.appendChild(i % 2 ? h("strong", { text: x }) : document.createTextNode(x)); });
+    return f;
+  }
+  function renderBlock(b) {
+    var fig = h("figure", { class: "fig fig-" + b.kind });
+    if (b.cap) fig.appendChild(h("figcaption", { text: b.cap }));
+    if (b.kind === "table") {
+      var tb = h("table"), thead = h("thead"), tbody = h("tbody");
+      b.rows.forEach(function (r, i) {
+        var tr = h("tr");
+        r.forEach(function (c, j) { tr.appendChild(h(i === 0 ? "th" : j === 0 ? "th" : "td", i > 0 && j === 0 ? { scope: "row" } : null, inline(c))); });
+        (i === 0 ? thead : tbody).appendChild(tr);
+      });
+      tb.appendChild(thead); tb.appendChild(tbody);
+      fig.appendChild(h("div", { class: "tbl" }, tb));
+    } else if (b.kind === "flow") {
+      var fl = h("div", { class: "flow" });
+      b.items.forEach(function (it, i) {
+        if (i) fl.appendChild(h("div", { class: "arrow", "aria-hidden": "true" }));
+        fl.appendChild(h("div", { class: "step" }, h("div", { class: "st" }, inline(it[0])), it[1] ? h("div", { class: "sd" }, inline(it[1])) : null));
+      });
+      fig.appendChild(fl);
+    } else {
+      var ol = h("ol", { class: "tl" });
+      b.items.forEach(function (it) { ol.appendChild(h("li", null, h("span", { class: "y", text: it[0] }), h("span", { class: "ev" }, inline(it[1])))); });
+      fig.appendChild(ol);
+    }
+    return fig;
+  }
   function parsePara(raw) {
+    var blk = parseBlock(raw); if (blk) { blk.plain = ""; blk.bold = []; return blk; }
     var kind = "p";
     if (raw.slice(0, 3) === "## ") { kind = "h"; raw = raw.slice(3); }
     else if (raw.slice(0, 3) === "!! ") { kind = "tip"; raw = raw.slice(3); }
@@ -410,10 +457,11 @@
       var ps = paras(sec).map(parsePara), list = S.marks[MK] || [], pos = resolveMarks(list, ps);
       art.replaceChildren();
       ps.forEach(function (pp, i) {
+        if (pp.rows || pp.items) return art.appendChild(renderBlock(pp));
         var n = pp.plain.length, b = new Array(n), m = new Array(n);
         pp.bold.forEach(function (r) { for (var k = r[0]; k < r[1]; k++) b[k] = 1; });
         list.forEach(function (mk) { var at = pos[mk.id]; if (at && at[0] === i) for (var k = at[1]; k < at[1] + mk.q.length && k < n; k++) m[k] = mk; });
-        var el = h(pp.kind === "h" ? "h3" : "p", { class: pp.kind === "tip" ? "tip" : null, "data-p": String(i) });
+        var el = h(pp.kind === "h" ? "h3" : "p", { class: pp.kind === "tip" ? "tip" : null, "data-p": String(i), id: pp.kind === "h" ? "h" + i : null });
         var k = 0;
         while (k < n) {
           var j = k; while (j < n && b[j] === b[k] && m[j] === m[k]) j++;
@@ -513,14 +561,22 @@
     var tail = h("div", { class: "card" }, h("div", { class: "h2", text: "讀完這節，寫考古題" }),
       h("div", { class: "muted", text: set.items.length ? "本節有 " + set.items.length + " 題選擇題。" : "本節還沒有對應的選擇題。" }));
     if (set.items.length) tail.appendChild(h("div", { class: "btns" },
-      h("a", { class: "btn", href: "#/p/" + key + "/1", text: "在手機上寫" }),
+      h("a", { class: "btn", href: "#/p/" + key + "/1", text: "線上作答" }),
       h("a", { class: "btn soft", href: "#/print/" + key, text: "列印本節" }),
       h("a", { class: "btn soft", href: "#/g/" + key, text: "對答案" })));
     if (es.length) { var el2 = h("div", { class: "sec-links" }); es.forEach(function (x) { el2.appendChild(h("a", { class: "pill", href: "#/es/" + x.id, text: "申論 " + x.src })); }); tail.appendChild(el2); }
     var nav = h("div", { class: "btns rd-nav" },
       si > 0 ? h("a", { class: "btn soft", href: "#/rd/" + sid + "/" + cid + "/" + secs[si - 1].id, text: "‹ 上一節" }) : h("a", { class: "btn soft", href: "#/c/" + sid + "/" + cid, text: "‹ 章節目錄" }),
       si < secs.length - 1 ? h("a", { class: "btn soft", href: "#/rd/" + sid + "/" + cid + "/" + secs[si + 1].id, text: "下一節 ›" }) : h("a", { class: "btn soft", href: "#/c/" + sid + "/" + cid, text: "本章考古題 ›" }));
-    show(topbar("#/c/" + sid + "/" + cid, "第 " + (ci + 1) + " 章"), head, art, mine, tail, nav, bar);
+    // 目錄（電腦版顯示在左側）：本章各節，目前這節展開小標
+    var toc = h("nav", { class: "toc", "aria-label": "本章目錄" }, h("a", { class: "toc-ch", href: "#/c/" + sid + "/" + cid, text: "第 " + (ci + 1) + " 章 " + c.title }));
+    secs.forEach(function (x, i) {
+      toc.appendChild(h("a", { class: "toc-s", href: "#/rd/" + sid + "/" + cid + "/" + x.id, "aria-current": x === sec ? "page" : null, text: (ci + 1) + "-" + (i + 1) + " " + x.title }));
+      if (x === sec) paras(sec).forEach(function (raw, j) {
+        if (raw.slice(0, 3) === "## ") toc.appendChild(h("button", { class: "toc-h", text: raw.slice(3), onclick: function () { var t = document.getElementById("h" + j); if (t) t.scrollIntoView({ behavior: "smooth", block: "start" }); } }));
+      });
+    });
+    show(topbar("#/c/" + sid + "/" + cid, "第 " + (ci + 1) + " 章"), h("div", { class: "rd-wrap" }, h("aside", { class: "rd-side" }, toc), h("div", { class: "rd-main" }, head, art, mine, tail, nav)), bar);
   }
 
   // ---------- 回報給 Claude ----------
@@ -659,6 +715,7 @@
   function route() {
     var p = (location.hash || "#/").replace(/^#\/?/, "").split("/").map(decodeURIComponent);
     window.scrollTo(0, 0);
+    app.className = "v-" + (p[0] || "home");
     switch (p[0]) {
       case "s": if (subj(p[1])) return viewSubject(p[1], p[2]); break;
       case "c": if (subj(p[1]) && (p[2] === "_none" || chapter(p[1], p[2]))) return viewChapter(p[1], p[2]); break;
