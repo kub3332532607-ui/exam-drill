@@ -1,6 +1,6 @@
 // 離線快取。改了任何檔案就把 VER 加一，舊快取會被清掉。
-const VER = "ks-v1";
-const CORE = ["./", "index.html", "style.css", "app.js", "data/exams.js", "manifest.webmanifest", "icon-192.png", "icon-512.png"];
+const VER = "ks-v2";
+const CORE = ["./", "index.html", "style.css", "app.js", "data/subjects.js", "data/pol.js", "data/eng.js", "manifest.webmanifest", "icon-192.png", "icon-512.png"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(VER).then((c) => c.addAll(CORE)).then(() => self.skipWaiting()));
