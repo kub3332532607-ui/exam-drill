@@ -82,6 +82,47 @@ details.sec[open] > summary .ar { transform: rotate(90deg); }
 .sec-links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .sec-links a { text-decoration: none; }
 
+/* 課文閱讀：不放卡片，像書頁一樣讀 */
+:root { --hl: #fff1a8; --hl-ink: inherit; }
+:root[data-theme="dark"] { --hl: #5a4a12; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --hl: #5a4a12; } }
+.rd-head { padding: 6px 4px 4px; }
+.rd-title { font-family: var(--serif); font-weight: 700; font-size: 27px; line-height: 1.4; margin: 6px 0 8px; text-wrap: balance; }
+.rd-meta { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 6px 12px; }
+.chips.sm { margin: 0; gap: 4px; }
+.chips.sm .chip { min-height: 32px; padding: 4px 12px; font-size: 13px; }
+.art { font-family: var(--serif); font-size: var(--rfs, 18px); line-height: 2; padding: 10px 4px 18px; text-align: justify; text-wrap: pretty; overflow-wrap: anywhere; }
+.art p { margin: 0 0 1.15em; text-indent: 2em; }
+.art h3 { font-size: 1.08em; font-weight: 700; margin: 1.8em 0 .6em; padding-left: 10px; border-left: 4px solid var(--accent); line-height: 1.6; }
+.art h3:first-child { margin-top: .4em; }
+.art strong { font-weight: 700; color: var(--accent); }
+.art.list p { text-indent: 0; padding-left: 1.1em; position: relative; }
+.art.list p::before { content: "•"; position: absolute; left: .1em; color: var(--ink2); }
+.art p.tip { text-indent: 0; background: var(--red-soft); border-radius: 12px; padding: .7em 1em; font-size: .94em; line-height: 1.9; }
+.art p.tip::before { content: "易錯｜"; font-family: var(--sans); font-weight: 700; color: var(--red); font-size: .9em; }
+.art mark.hl { background: var(--hl); color: inherit; border-radius: 3px; padding: 1px 0; cursor: pointer; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+.art mark.hl.has-note.end::after { content: "✎"; font-family: var(--sans); font-size: .62em; vertical-align: super; color: var(--accent); margin-left: 2px; }
+.art mark.flash { outline: 2px solid var(--accent); }
+.mine { display: block; width: 100%; text-align: left; font: inherit; background: none; border: 0; border-bottom: 1px solid var(--line); color: var(--ink); padding: 12px 2px; cursor: pointer; }
+.mine:last-child { border-bottom: 0; }
+.mine .q, .rep-item .q { font-family: var(--serif); background: linear-gradient(transparent 55%, var(--hl) 55%); display: inline; line-height: 1.9; }
+.mine .n, .rep-item .n { font-size: 14px; color: var(--ink2); margin-top: 4px; white-space: pre-wrap; }
+.rd-nav { margin: 0 0 16px; }
+.selbar { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(14px + env(safe-area-inset-bottom, 0)); z-index: 8; display: flex; gap: 8px; background: var(--card); padding: 8px; border-radius: 16px; box-shadow: 0 6px 24px rgba(0,0,0,.18); width: min(420px, calc(100% - 28px)); }
+.selbar .btn { flex: 1; min-height: 44px; font-size: 15px; padding: 8px 10px; }
+.selbar[hidden] { display: none; }
+.sheet-bg { position: fixed; inset: 0; background: rgba(10,12,18,.38); z-index: 10; display: flex; align-items: flex-end; justify-content: center; }
+.sheet { background: var(--card); width: min(680px, 100%); border-radius: 18px 18px 0 0; padding: 18px 16px calc(18px + env(safe-area-inset-bottom, 0)); max-height: 85vh; overflow: auto; }
+.sheet .sq { font-family: var(--serif); font-size: 16px; line-height: 1.85; margin-bottom: 8px; max-height: 7.5em; overflow: auto; }
+.btn.red-t { color: var(--red); background: var(--red-soft); }
+.rep-ck { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--ink2); margin-top: 8px; cursor: pointer; }
+.rep-ck input { width: 20px; height: 20px; accent-color: var(--accent); margin: 0; }
+.rep-card { text-decoration: none; color: var(--ink); border-bottom: 0; padding: 16px 18px; }
+.grp { font-size: 13px; font-weight: 700; color: var(--accent); padding: 14px 2px 4px; }
+.rep-item { padding: 10px 2px 12px; border-bottom: 1px solid var(--line); }
+.rep-item .link { background: none; border: 0; padding: 6px 0 0; font: inherit; font-size: 13px; color: var(--ink2); cursor: pointer; display: block; }
+.rep-txt { min-height: 180px; font-size: 13px; line-height: 1.6; }
+
 /* 題目 */
 .qno { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 14px; color: var(--ink2); }
 .qtext { font-family: var(--serif); font-weight: 500; font-size: 19px; line-height: 1.9; margin: 10px 0 14px; text-wrap: pretty; }

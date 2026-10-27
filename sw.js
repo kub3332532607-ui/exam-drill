@@ -1,5 +1,5 @@
 // 離線快取。改了任何檔案就把 VER 加一，舊快取會被清掉。
-const VER = "ks-v4";
+const VER = "ks-v5";
 const CORE = ["./", "index.html", "style.css", "app.js", "data/subjects.js", "data/chn.js", "data/eng.js", "data/con.js", "data/jur.js", "data/adm.js", "data/alaw.js", "data/pol.js", "manifest.webmanifest", "icon-192.png", "icon-512.png"];
 
 self.addEventListener("install", (e) => {
