@@ -3,7 +3,7 @@
   var KS = window.KS, LET = ["A", "B", "C", "D"];
   var app = document.getElementById("app");
   // 版本號：和 sw.js 的 VER 保持一致，改程式時兩邊一起加一
-  var APP_VER = "ks-v26", APP_DATE = "2026-10-28";
+  var APP_VER = "ks-v27", APP_DATE = "2026-10-29";
 
   // ---------- 儲存 ----------
   var KEY = "ks_v1";
