@@ -3,7 +3,7 @@
   var KS = window.KS, LET = ["A", "B", "C", "D"];
   var app = document.getElementById("app");
   // 版本號：和 sw.js 的 VER 保持一致，改程式時兩邊一起加一
-  var APP_VER = "ks-v19", APP_DATE = "2026-10-28";
+  var APP_VER = "ks-v20", APP_DATE = "2026-10-28";
 
   // ---------- 儲存 ----------
   var KEY = "ks_v1";
@@ -468,7 +468,7 @@
     function full() {
       var ta = h("textarea", { class: "full-ta", placeholder: "貼上喜歡的考生詳解，或寫自己的筆記", oninput: function () { setNote(ta.value); } });
       ta.value = S.notes[k] || "";
-      var ov = h("div", { class: "full", role: "dialog", "aria-label": "我的訂正" },
+      var ov = h("div", { class: "fullov", role: "dialog", "aria-label": "我的訂正" },
         h("div", { class: "full-head" }, h("div", { class: "h2", text: "我的訂正" }), h("span", { class: "small", text: it.e.short + " 第 " + qno(it) + " 題" }),
           h("button", { class: "btn", text: "完成", onclick: function () { setNote(ta.value); ov.remove(); document.body.classList.remove("noscroll"); editing = !(S.notes[k] || "").trim(); render(); } })),
         ta);

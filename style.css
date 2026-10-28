@@ -281,7 +281,7 @@ mark.qhl { background: var(--hl, #fbe7a1); color: inherit; border-radius: 3px; p
 .nbtns .strong { font-weight: 700; }
 textarea.grow { min-height: 96px; resize: none; overflow: hidden; line-height: 1.75; }
 .nview { white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--serif); font-size: 16px; line-height: 1.85; background: var(--soft); border-radius: 12px; padding: 10px 12px; margin-top: 4px; }
-.full { position: fixed; inset: 0; z-index: 12; background: var(--card); display: flex; flex-direction: column; padding: calc(10px + env(safe-area-inset-top, 0)) 14px calc(10px + env(safe-area-inset-bottom, 0)); }
+.fullov { position: fixed; inset: 0; z-index: 12; background: var(--card); display: flex; flex-direction: column; padding: calc(10px + env(safe-area-inset-top, 0)) 14px calc(10px + env(safe-area-inset-bottom, 0)); }
 .full-head { display: flex; align-items: center; gap: 10px; padding-bottom: 8px; }
 .full-head .h2 { margin: 0; }
 .full-head .btn { margin-left: auto; min-height: 40px; padding: 6px 18px; }
