@@ -230,12 +230,13 @@
     if (c) {
       var rv = h("div", { class: "card col-l" }, h("div", { class: "h2", text: "考點複習" })), rr = h("div", { class: "rows" });
       c.sections.forEach(function (sec, i) {
-        var mq = set.items.filter(function (it) { return it.q.sec === sec.id; }).length;
+        var sq = set.items.filter(function (it) { return it.q.sec === sec.id; }), mq = sq.length, sc = counts(sq);
         var mk = (S.marks[mkey(sid, sec.id)] || []).length;
-        var sub = [sec.text ? "課文" : "重點條列", mq ? "選擇題 " + mq : "", mk ? "畫線 " + mk : ""].filter(Boolean).join("・");
+        var qs = !mq ? "" : sc.done === 0 ? "選擇題 " + mq + "・未作答" : sc.done >= mq ? "選擇題 " + mq + "・已做完" + (sc.wrong ? "（錯 " + sc.wrong + "）" : "") : "選擇題 " + sc.done + "/" + mq + " 已做";
+        var sub = [sec.text ? "課文" : "重點條列", qs, mk ? "畫線 " + mk : ""].filter(Boolean).join("・");
         rr.appendChild(h("a", { class: "row", href: "#/rd/" + sid + "/" + cid + "/" + sec.id },
           h("div", null, h("div", { class: "small", text: (idx + 1) + "-" + (i + 1) }), h("div", { class: "nm", text: sec.title }), h("div", { class: "sub", text: sub })),
-          h("span", { class: "go", text: "›" })));
+          mq && sc.done >= mq ? h("span", { class: "pill " + (sc.wrong ? "red" : "green"), text: sc.wrong ? "錯 " + sc.wrong : "✓" }) : h("span", { class: "go", text: "›" })));
       });
       rv.appendChild(rr);
       nodes.push(rv);
@@ -298,11 +299,25 @@
       card.appendChild(h("p", null, h("a", { class: "link-out", href: search(q), target: "_blank", rel: "noopener", text: "到阿摩看考生詳解 ↗" })));
       card.appendChild(noteBox(it));
     }
-    var last = n >= set.items.length;
+    var last = n >= set.items.length, nx = last ? nextTarget(key, set) : null;
     card.appendChild(h("div", { class: "btns" },
       h("button", { class: "btn soft", text: "上一題", disabled: n <= 1, onclick: function () { go("#/p/" + key + "/" + (n - 1)); } }),
-      h("button", { class: "btn", text: last ? "完成" : "下一題", onclick: function () { if (last) { Object.keys(picked).forEach(function (x) { delete picked[x]; }); delete frozen[key]; go(set.back); } else go("#/p/" + key + "/" + (n + 1)); } })));
+      h("button", { class: "btn", text: last ? nx.label : "下一題", onclick: function () { if (last) { Object.keys(picked).forEach(function (x) { delete picked[x]; }); delete frozen[key]; go(nx.href); } else go("#/p/" + key + "/" + (n + 1)); } })));
     show(topbar(set.back, set.title), card);
+  }
+  // 線上作答做完後要去哪：節 → 下一節（最後一節 → 下一章第一節）；章 → 下一章；其他回原處
+  function nextTarget(key, set) {
+    var p = key.split(":"), res = { href: set.back, label: "完成" };
+    if (p[0] !== "c" || p[2] === "_none") return res;
+    var chs = chapters(p[1]), ci = chs.indexOf(chapter(p[1], p[2])); if (ci < 0) return res;
+    var secs = chs[ci].sections, nextCh = chs[ci + 1];
+    function firstOf(c) { return c.sections.length ? "#/rd/" + p[1] + "/" + c.id + "/" + c.sections[0].id : "#/c/" + p[1] + "/" + c.id; }
+    if (p[3]) {
+      var si = secs.map(function (x) { return x.id; }).indexOf(p[3]);
+      if (si >= 0 && si < secs.length - 1) return { href: "#/rd/" + p[1] + "/" + p[2] + "/" + secs[si + 1].id, label: "完成，下一節 ›" };
+    }
+    if (nextCh) return { href: p[3] ? firstOf(nextCh) : "#/c/" + p[1] + "/" + nextCh.id, label: "完成，下一章 ›" };
+    return res;
   }
   function noteBox(it) {
     var k = qid(it.e, it.n);
