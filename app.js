@@ -3,20 +3,20 @@
   var KS = window.KS, LET = ["A", "B", "C", "D"];
   var app = document.getElementById("app");
   // 版本號：和 sw.js 的 VER 保持一致，改程式時兩邊一起加一
-  var APP_VER = "ks-v25", APP_DATE = "2026-10-28";
+  var APP_VER = "ks-v26", APP_DATE = "2026-10-28";
 
   // ---------- 儲存 ----------
   var KEY = "ks_v1";
   // marks：課文畫線 {節id: [{id,p,q,o,note,rep,sent,ts}]}；repq：題目訂正要回報 {題id: {sent,ts}}；read：閱讀設定
   // qm：題目劃記與訂正畫線、qx：刪去法（見「題目劃記」）；nts：題目訂正的修改時間；del：已刪除畫線的墓碑 {畫線id: 時間}（同步時避免已刪的畫線復活）
-  var S = { stats: {}, attempts: [], notes: {}, nts: {}, essay: {}, theme: "", print: {}, marks: {}, repq: {}, read: {}, del: {}, qm: {}, qx: {} };
+  var S = { stats: {}, attempts: [], notes: {}, nts: {}, essay: {}, theme: "", print: {}, marks: {}, repq: {}, read: {}, del: {}, qm: {}, qx: {}, pos: {} };
   function load() {
     try { var j = JSON.parse(localStorage.getItem(KEY)); if (j) S = Object.assign(S, j); } catch (e) {}
     migrate();
   }
   function migrate() {
     S.attempts.forEach(function (a) { if (!a.set && a.exam) a.set = "e:" + a.exam; });
-    S.essay = S.essay || {}; S.print = S.print || {}; S.marks = S.marks || {}; S.repq = S.repq || {}; S.read = S.read || {}; S.nts = S.nts || {}; S.del = S.del || {}; S.qm = S.qm || {}; S.qx = S.qx || {};
+    S.essay = S.essay || {}; S.print = S.print || {}; S.marks = S.marks || {}; S.repq = S.repq || {}; S.read = S.read || {}; S.nts = S.nts || {}; S.del = S.del || {}; S.qm = S.qm || {}; S.qx = S.qx || {}; S.pos = S.pos || {};
   }
   function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
   function applyTheme() { if (S.theme) document.documentElement.setAttribute("data-theme", S.theme); else document.documentElement.removeAttribute("data-theme"); }
@@ -31,7 +31,8 @@
       else if (v === true) el.setAttribute(k, "");
       else if (v !== false && v != null) el.setAttribute(k, v);
     });
-    for (var i = 2; i < arguments.length; i++) { var c = arguments[i]; if (c == null || c === false) continue; el.appendChild(typeof c === "string" ? document.createTextNode(c) : c); }
+    var kids = [].concat.apply([], [].slice.call(arguments, 2));   // 子節點可傳陣列
+    kids.forEach(function (c) { if (c == null || c === false) return; el.appendChild(typeof c === "string" ? document.createTextNode(c) : c); });
     return el;
   }
   function show() { app.replaceChildren.apply(app, [].slice.call(arguments).filter(Boolean)); }
@@ -102,6 +103,19 @@
     return { done: done, wrong: wrong, total: items.length };
   }
 
+  // ---------- 讀到哪（自動記憶） ----------
+  // S.pos（會同步）：「rd:科目:節」{p:段落序號, pc:讀到百分比, done:停在節末, fin:曾讀完, ts}；「pr:題組」{n:第幾題, a:{題id:選項}, done, ts}；「last」{href, label, sub, ts}
+  function setPos(k, v) { v.ts = Date.now(); S.pos[k] = v; save(); }
+  function setLast(href, label, sub) { var o = S.pos.last; if (o && o.href === href && o.sub === sub && Date.now() - o.ts < 3e4) return; setPos("last", { href: href, label: label, sub: sub }); }
+  function resumeN(key, total) { var r = S.pos["pr:" + key]; return r && !r.done && r.n > 1 && r.n <= total ? r.n : 0; }
+  // 線上作答按鈕：做到一半就顯示「接續第 N 題」＋「從頭」
+  function pracBtns(key, total, main) {
+    var n = key.charAt(0) === "w" ? 0 : resumeN(key, total);
+    if (!n) return [h("a", { class: main ? "btn" : "btn soft", href: "#/p/" + key + "/1", text: "線上作答" })];
+    return [h("a", { class: "btn", href: "#/p/" + key + "/" + n, text: "接續第 " + n + " 題" }),
+      h("a", { class: "btn soft", href: "#/p/" + key + "/1", text: "從頭作答", onclick: function () { setPos("pr:" + key, { n: 1, done: true }); delete frozen[key]; Object.keys(picked).forEach(function (x) { delete picked[x]; }); } })];
+  }
+
   // ---------- 首頁 ----------
   function viewHome() {
     var rows = h("div", { class: "rows" });
@@ -116,7 +130,9 @@
     });
     var wr = 0; Object.keys(S.stats).forEach(function (k) { if (S.stats[k].last === "w") wr++; });
     var rp = pendingReports().length;
+    var L = S.pos.last;
     show(topbar(),
+      L && L.href ? h("a", { class: "card row cont-card", href: L.href }, h("div", null, h("div", { class: "eyebrow", text: "繼續上次" }), h("div", { class: "nm", text: L.label }), L.sub ? h("div", { class: "sub", text: L.sub }) : null), h("span", { class: "go", text: "›" })) : null,
       h("div", { class: "card" }, h("div", { class: "eyebrow", text: "一般行政" }), h("div", { class: "title", text: "今天讀哪一科？" }), h("div", { class: "muted", text: wr ? "錯題本裡還有 " + wr + " 題等你回來。" : "先複習一章，再寫那一章的考古題。" })),
       h("div", { class: "card" }, rows),
       rp ? h("a", { class: "card row rep-card", href: "#/rep" }, h("div", null, h("div", { class: "nm", text: "回報給 Claude" }), h("div", { class: "sub", text: rp + " 則訂正等著補進課文" })), h("span", { class: "pill blue", text: String(rp) })) : null,
@@ -261,7 +277,8 @@
         var sq = set.items.filter(function (it) { return it.q.sec === sec.id; }), mq = sq.length, sc = counts(sq);
         var mk = (S.marks[mkey(sid, sec.id)] || []).length;
         var qs = !mq ? "" : sc.done === 0 ? "選擇題 " + mq + "・未作答" : sc.done >= mq ? "選擇題 " + mq + "・已做完" + (sc.wrong ? "（錯 " + sc.wrong + "）" : "") : "選擇題 " + sc.done + "/" + mq + " 已做";
-        var sub = [sec.text ? "課文" : "重點條列", qs, mk ? "畫線 " + mk : ""].filter(Boolean).join("・");
+        var rp = S.pos["rd:" + sid + ":" + sec.id], rs = !rp ? "" : rp.fin ? "已讀完" : rp.pc ? "讀到 " + rp.pc + "%" : "";
+        var sub = [sec.text ? "課文" : "重點條列", rs, qs, mk ? "畫線 " + mk : ""].filter(Boolean).join("・");
         rr.appendChild(h("a", { class: "row", href: "#/rd/" + sid + "/" + cid + "/" + sec.id },
           h("div", null, h("div", { class: "small", text: (idx + 1) + "-" + (i + 1) }), h("div", { class: "nm", text: sec.title }), h("div", { class: "sub", text: sub })),
           mq && sc.done >= mq ? h("span", { class: "pill " + (sc.wrong ? "red" : "green"), text: sc.wrong ? "錯 " + sc.wrong : "✓" }) : h("span", { class: "go", text: "›" })));
@@ -272,10 +289,9 @@
     var ct = counts(set.items), la = lastAttempt(key);
     var mc = h("div", { class: "card" }, h("div", { class: "h2", text: "本章選擇題" }),
       h("div", { class: "muted", text: set.items.length ? set.items.length + " 題・已做 " + ct.done + "・錯 " + ct.wrong + (la ? "・上次紙本答對 " + la.correct + "/" + la.total : "") : "目前考卷裡還沒有對應這章的選擇題，傳更多考卷就會補上。" }));
-    if (set.items.length) mc.appendChild(h("div", { class: "btns" },
-      h("a", { class: "btn", href: "#/print/" + key, text: "列印本章" }),
-      h("a", { class: "btn soft", href: "#/g/" + key, text: "對答案" }),
-      h("a", { class: "btn soft", href: "#/p/" + key + "/1", text: "線上作答" })));
+    if (set.items.length) mc.appendChild(h("div", { class: "btns" }, pracBtns(key, set.items.length).concat([
+      h("a", { class: resumeN(key, set.items.length) ? "btn soft" : "btn", href: "#/print/" + key, text: "列印本章" }),
+      h("a", { class: "btn soft", href: "#/g/" + key, text: "對答案" })])));
     nodes.push(mc);
     if (es.length) {
       var ec = h("div", { class: "card" }, h("div", { class: "h2", text: "本章申論題" }));
@@ -299,7 +315,7 @@
       h("div", { class: "card" }, h("div", { class: "eyebrow", text: e.title }), h("div", { class: "title", text: e.short + " " + e.name }),
         h("div", { class: "muted", text: e.questions.length + " 題・" + (e.perScore ? "每題 " + e.perScore + " 分" : (e.part || "以百分制計分")) + "・已做 " + ct.done + "・錯 " + ct.wrong }),
         la ? h("div", { style: "margin-top:10px" }, h("span", { class: "verdict " + (la.score >= 60 ? "ok" : "no"), text: "上次 " + la.score + " 分" })) : null,
-        h("div", { class: "btns" }, h("a", { class: "btn", href: "#/print/" + key, text: "列印試卷" }), h("a", { class: "btn soft", href: "#/g/" + key, text: "對答案" }), h("a", { class: "btn soft", href: "#/p/" + key + "/1", text: "線上作答" }))));
+        h("div", { class: "btns" }, pracBtns(key, set.items.length).concat([h("a", { class: resumeN(key, set.items.length) ? "btn soft" : "btn", href: "#/print/" + key, text: "列印試卷" }), h("a", { class: "btn soft", href: "#/g/" + key, text: "對答案" })]))));
   }
 
   // ---------- 題目劃記（作答時的鉛筆線、刪去法、訂正畫線） ----------
@@ -418,7 +434,15 @@
   function viewPractice(key, n) {
     var set = useSet(key); if (!set || !set.items.length) return go("#/");
     var it = set.items[n - 1]; if (!it) return go(set.back);
-    var k = qid(it.e, it.n), pk = picked[k], q = it.q;
+    var PK = "pr:" + key, pr = S.pos[PK], k = qid(it.e, it.n), q = it.q;
+    // 接續作答：把這一輪已答的選項帶回來（換裝置也會同步）
+    if (key.charAt(0) !== "w") {
+      if (pr && !pr.done && pr.a) Object.keys(pr.a).forEach(function (x) { if (picked[x] == null) picked[x] = pr.a[x]; });
+      var mine = {}; set.items.forEach(function (x) { var y = qid(x.e, x.n); if (picked[y] != null) mine[y] = picked[y]; });
+      if (!pr || pr.done || pr.n !== n || Object.keys(mine).length !== Object.keys(pr.a || {}).length) setPos(PK, { n: n, a: mine });
+      setLast("#/p/" + key + "/" + n, set.title, subj(set.sid).name + "・線上作答 第 " + n + " / " + set.items.length + " 題");
+    }
+    var pk = picked[k];
     // 上次的劃記：重寫時預設隱藏，作答後、開劃記或點「顯示」才出現
     var vis = qmode || pk != null || !!qshow[k], old = hasQm(it);
     var opts = h("div", { class: "opts" });
@@ -443,7 +467,7 @@
     var last = n >= set.items.length, nx = last ? nextTarget(key, set) : null;
     card.appendChild(h("div", { class: "btns" },
       h("button", { class: "btn soft", text: "上一題", disabled: n <= 1, onclick: function () { qHide(); go("#/p/" + key + "/" + (n - 1)); } }),
-      h("button", { class: "btn", text: last ? nx.label : "下一題", onclick: function () { qHide(); if (last) { Object.keys(picked).forEach(function (x) { delete picked[x]; }); delete frozen[key]; go(nx.href); } else go("#/p/" + key + "/" + (n + 1)); } })));
+      h("button", { class: "btn", text: last ? nx.label : "下一題", onclick: function () { qHide(); if (last) { Object.keys(picked).forEach(function (x) { delete picked[x]; }); delete frozen[key]; if (key.charAt(0) !== "w") setPos("pr:" + key, { n: 1, done: true }); go(nx.href); } else go("#/p/" + key + "/" + (n + 1)); } })));
     show(topbar(set.back, set.title), card);
   }
   // 線上作答做完後要去哪：節 → 下一節（最後一節 → 下一章第一節）；章 → 下一章；其他回原處
@@ -791,23 +815,70 @@
     paint();
     var tail = h("div", { class: "card" }, h("div", { class: "h2", text: "讀完這節，寫考古題" }),
       h("div", { class: "muted", text: set.items.length ? "本節有 " + set.items.length + " 題選擇題。" : "本節還沒有對應的選擇題。" }));
-    if (set.items.length) tail.appendChild(h("div", { class: "btns" },
-      h("a", { class: "btn", href: "#/p/" + key + "/1", text: "線上作答" }),
+    if (set.items.length) tail.appendChild(h("div", { class: "btns" }, pracBtns(key, set.items.length, true).concat([
       h("a", { class: "btn soft", href: "#/print/" + key, text: "列印本節" }),
-      h("a", { class: "btn soft", href: "#/g/" + key, text: "對答案" })));
+      h("a", { class: "btn soft", href: "#/g/" + key, text: "對答案" })])));
     if (es.length) { var el2 = h("div", { class: "sec-links" }); es.forEach(function (x) { el2.appendChild(h("a", { class: "pill", href: "#/es/" + x.id, text: "申論 " + x.src })); }); tail.appendChild(el2); }
     var nav = h("div", { class: "btns rd-nav" },
       si > 0 ? h("a", { class: "btn soft", href: "#/rd/" + sid + "/" + cid + "/" + secs[si - 1].id, text: "‹ 上一節" }) : h("a", { class: "btn soft", href: "#/c/" + sid + "/" + cid, text: "‹ 章節目錄" }),
       si < secs.length - 1 ? h("a", { class: "btn soft", href: "#/rd/" + sid + "/" + cid + "/" + secs[si + 1].id, text: "下一節 ›" }) : h("a", { class: "btn soft", href: "#/c/" + sid + "/" + cid, text: "本章考古題 ›" }));
     // 目錄（電腦版顯示在左側）：本章各節，目前這節展開小標
     var toc = h("nav", { class: "toc", "aria-label": "本章目錄" }, h("a", { class: "toc-ch", href: "#/c/" + sid + "/" + cid, text: "第 " + (ci + 1) + " 章 " + c.title }));
+    var heads = [];   // [段落序號, 目錄按鈕, 小標文字]
     secs.forEach(function (x, i) {
       toc.appendChild(h("a", { class: "toc-s", href: "#/rd/" + sid + "/" + cid + "/" + x.id, "aria-current": x === sec ? "page" : null, text: (ci + 1) + "-" + (i + 1) + " " + x.title }));
       if (x === sec) paras(sec).forEach(function (raw, j) {
-        if (raw.slice(0, 3) === "## ") toc.appendChild(h("button", { class: "toc-h", text: raw.slice(3), onclick: function () { var t = document.getElementById("h" + j); if (t) t.scrollIntoView({ behavior: "smooth", block: "start" }); } }));
+        if (raw.slice(0, 3) !== "## ") return;
+        var b = h("button", { class: "toc-h", text: raw.slice(3), onclick: function () { var t = document.getElementById("h" + j); if (t) t.scrollIntoView({ behavior: "smooth", block: "start" }); } });
+        heads.push([j, b, raw.slice(3)]); toc.appendChild(b);
       });
     });
-    show(topbar("#/c/" + sid + "/" + cid, "第 " + (ci + 1) + " 章"), h("div", { class: "rd-wrap" }, h("aside", { class: "rd-side" }, toc), h("div", { class: "rd-main" }, head, art, mine, tail, nav)), bar);
+    // 手機：頂端顯示目前讀到的小標
+    var now = h("div", { class: "rd-now", hidden: true });
+    show(topbar("#/c/" + sid + "/" + cid, "第 " + (ci + 1) + " 章"), now, h("div", { class: "rd-wrap" }, h("aside", { class: "rd-side" }, toc), h("div", { class: "rd-main" }, head, art, mine, tail, nav)), bar);
+
+    // ---------- 讀到哪：捲動時記下段落、目錄藍標跟著小標走 ----------
+    var RK = "rd:" + sid + ":" + xid, saved = S.pos[RK], curH = null, tmr = null, lastP = -1;
+    function topPara() {   // 畫面上方（扣掉頂欄）第一個還看得到的段落
+      var kids = art.children, line = 90, lo = 0, hi = kids.length - 1, ans = 0;
+      while (lo <= hi) { var mid = (lo + hi) >> 1; if (kids[mid].getBoundingClientRect().top <= line) { ans = mid; lo = mid + 1; } else hi = mid - 1; }
+      return ans;
+    }
+    function spy() {
+      if (!art.isConnected) return window.removeEventListener("scroll", onScroll);
+      var p = topPara(), cur = null;
+      heads.forEach(function (x) { if (x[0] <= p) cur = x; });
+      if (art.getBoundingClientRect().top > 90) cur = null;
+      if (cur !== curH) {
+        if (curH) curH[1].removeAttribute("aria-current");
+        curH = cur;
+        if (cur) { cur[1].setAttribute("aria-current", "true"); var sd = cur[1].closest(".rd-side"); if (sd && sd.offsetParent) { var r = cur[1].getBoundingClientRect(), sr = sd.getBoundingClientRect(); if (r.top < sr.top || r.bottom > sr.bottom) cur[1].scrollIntoView({ block: "nearest" }); } }
+        now.textContent = cur ? cur[2] : ""; now.hidden = !cur;
+      }
+      return p;
+    }
+    function remember() {
+      if (!art.isConnected) return;
+      var p = topPara(), n = art.children.length, done = tail.getBoundingClientRect().top < window.innerHeight;
+      var pc = done ? 100 : Math.round(p / Math.max(1, n - 1) * 100);
+      if (p === lastP && !done) return; lastP = p;
+      var o = S.pos[RK] || {};
+      if (o.p === p && !!o.done === done) return;
+      // done＝現在停在節末（下次從頭讀）；fin＝曾經讀完（章節頁顯示「已讀完」）
+      setPos(RK, { p: p, pc: pc, done: done || undefined, fin: done || o.fin || undefined });
+    }
+    function onScroll() { spy(); clearTimeout(tmr); tmr = setTimeout(remember, 600); }
+    window.addEventListener("scroll", onScroll, { passive: true });
+    setLast("#/rd/" + sid + "/" + cid + "/" + xid, (ci + 1) + "-" + (si + 1) + " " + sec.title, s.name + "・課文");
+    // 回到上次讀的段落（讀完的節從頭開始）
+    if (saved && !saved.done && saved.p > 0 && art.children[saved.p]) {
+      requestAnimationFrame(function () {
+        var el = art.children[saved.p]; if (!el) return;
+        window.scrollTo(0, el.getBoundingClientRect().top + window.scrollY - 70);
+        lastP = saved.p; spy();
+        toast("接續上次讀到的地方");
+      });
+    } else requestAnimationFrame(spy);
   }
 
   // ---------- 回報給 Claude ----------

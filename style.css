@@ -294,3 +294,10 @@ body.noscroll { overflow: hidden; }
 .rep-ch .nm { font-weight: 700; }
 .rep-ch-btns { display: flex; gap: 6px; flex-shrink: 0; }
 .rep-ch-btns .btn { min-height: 36px; padding: 6px 12px; font-size: 14px; }
+
+/* 讀到哪：目錄藍標跟著小標、手機頂端小標、首頁繼續上次 */
+.toc .toc-h[aria-current="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 700; }
+.rd-now { position: sticky; top: env(safe-area-inset-top, 0); z-index: 5; margin: 0 -14px 8px; padding: 6px 14px; font-size: 13px; color: var(--accent); background: var(--bg); border-bottom: 1px solid var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (min-width: 900px) { .rd-now { display: none; } }
+.cont-card { border: 1.5px solid var(--accent); }
+.cont-card .eyebrow { color: var(--accent); }
