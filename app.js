@@ -3,20 +3,20 @@
   var KS = window.KS, LET = ["A", "B", "C", "D"];
   var app = document.getElementById("app");
   // 版本號：和 sw.js 的 VER 保持一致，改程式時兩邊一起加一
-  var APP_VER = "ks-v17", APP_DATE = "2026-10-28";
+  var APP_VER = "ks-v18", APP_DATE = "2026-10-28";
 
   // ---------- 儲存 ----------
   var KEY = "ks_v1";
   // marks：課文畫線 {節id: [{id,p,q,o,note,rep,sent,ts}]}；repq：題目訂正要回報 {題id: {sent,ts}}；read：閱讀設定
-  // nts：題目訂正的修改時間；del：已刪除畫線的墓碑 {畫線id: 時間}（同步時避免已刪的畫線復活）
-  var S = { stats: {}, attempts: [], notes: {}, nts: {}, essay: {}, theme: "", print: {}, marks: {}, repq: {}, read: {}, del: {} };
+  // qm：題目劃記與訂正畫線、qx：刪去法（見「題目劃記」）；nts：題目訂正的修改時間；del：已刪除畫線的墓碑 {畫線id: 時間}（同步時避免已刪的畫線復活）
+  var S = { stats: {}, attempts: [], notes: {}, nts: {}, essay: {}, theme: "", print: {}, marks: {}, repq: {}, read: {}, del: {}, qm: {}, qx: {} };
   function load() {
     try { var j = JSON.parse(localStorage.getItem(KEY)); if (j) S = Object.assign(S, j); } catch (e) {}
     migrate();
   }
   function migrate() {
     S.attempts.forEach(function (a) { if (!a.set && a.exam) a.set = "e:" + a.exam; });
-    S.essay = S.essay || {}; S.print = S.print || {}; S.marks = S.marks || {}; S.repq = S.repq || {}; S.read = S.read || {}; S.nts = S.nts || {}; S.del = S.del || {};
+    S.essay = S.essay || {}; S.print = S.print || {}; S.marks = S.marks || {}; S.repq = S.repq || {}; S.read = S.read || {}; S.nts = S.nts || {}; S.del = S.del || {}; S.qm = S.qm || {}; S.qx = S.qx || {};
   }
   function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
   function applyTheme() { if (S.theme) document.documentElement.setAttribute("data-theme", S.theme); else document.documentElement.removeAttribute("data-theme"); }
@@ -49,12 +49,6 @@
   function ansText(q) { return (Array.isArray(q.a) ? q.a : [q.a]).map(function (i) { return LET[i]; }).join(" 或 "); }
   function qno(it) { return it.q.no || it.n; }
   function passage(it) { return it.q.g && it.e.passages ? it.e.passages[it.q.g] : null; }
-  function passageBox(it, open) {
-    var t = passage(it); if (!t) return null;
-    var d = h("details", { class: "psg" }, h("summary", { text: "短文（第 " + it.q.g + " 題起）" }), h("div", { class: "psg-t", text: t }));
-    if (open) d.open = true;
-    return d;
-  }
   function stat(e, n) { return S.stats[qid(e, n)]; }
   function record(e, n, ok) {
     var k = qid(e, n), s = S.stats[k] || { w: 0, c: 0 };
@@ -308,25 +302,138 @@
         h("div", { class: "btns" }, h("a", { class: "btn", href: "#/print/" + key, text: "列印試卷" }), h("a", { class: "btn soft", href: "#/g/" + key, text: "對答案" }), h("a", { class: "btn soft", href: "#/p/" + key + "/1", text: "線上作答" }))));
   }
 
-  // ---------- 手機作答（逐題） ----------
-  var picked = {};
-  function optBtn(q, i, cls, fn) {
-    var b = h("button", { class: "opt " + (cls || ""), onclick: fn }, h("span", { class: "L", text: LET[i] }), h("span", { class: "t", text: q.o[i] }));
+  // ---------- 題目劃記（作答時的鉛筆線、刪去法、訂正畫線） ----------
+  // S.qm[容器] = [{id,f,o,q,ts}]：容器是題目 id「考卷#題」或短文 id「考卷@起始題號」；
+  //   f：q 題幹、o0–o3 選項、g 短文、n 我的訂正；o 是該段文字裡的起點，q 是原句（文字改了以原句重新找位置）。
+  // S.qx[題目 id] = {o:[被劃掉的選項序號], ts}（刪去法）。兩者都會雲端同步，刪除的線記在 S.del。
+  var qmode = false, qshow = {};
+  function pkey(it) { return it.q.g ? it.e.id + "@" + it.q.g : null; }
+  function qxOf(k) { return (S.qx[k] && S.qx[k].o) || []; }
+  function hasQm(it) {
+    var k = qid(it.e, it.n), pk = pkey(it);
+    return (S.qm[k] || []).filter(function (m) { return m.f !== "n"; }).length + (pk ? (S.qm[pk] || []).length : 0) + qxOf(k).length;
+  }
+  function toggleX(k, i) {
+    var o = qxOf(k).slice(), at = o.indexOf(i);
+    if (at >= 0) o.splice(at, 1); else o.push(i);
+    S.qx[k] = { o: o, ts: Date.now() }; save();
+  }
+  // 把一段文字畫上線：on＝可以選字畫線；show＝顯示已畫的線
+  function mkText(tag, cls, text, c, f, on, show) {
+    var el = h(tag, { class: cls + (on ? " mk-on" : ""), "data-mc": c, "data-mf": f });
+    text = text || "";
+    var n = text.length, at = new Array(n), moved = false;
+    if (show) (S.qm[c] || []).forEach(function (m) {
+      if (m.f !== f) return;
+      var p = nearest(text, m.q, m.o); if (p < 0) return;
+      if (p !== m.o) { m.o = p; moved = true; }
+      for (var j = p; j < p + m.q.length && j < n; j++) at[j] = m;
+    });
+    if (moved) save();
+    var k = 0;
+    while (k < n) {
+      var j = k; while (j < n && at[j] === at[k]) j++;
+      var t = document.createTextNode(text.slice(k, j));
+      el.appendChild(at[k] ? h("mark", { class: f === "n" ? "qhl" : "qul", "data-id": at[k].id }, t) : t);
+      k = j;
+    }
+    return el;
+  }
+  function refreshFrom(el) { for (var e = el; e; e = e.parentElement) if (e._rf) return e._rf(); }
+  var qbar = null, qsel = null, qtimer = null;
+  function qBar(btns) {
+    if (!qbar) { qbar = h("div", { class: "selbar" }); document.body.appendChild(qbar); }
+    qbar.replaceChildren.apply(qbar, btns.map(function (b) {
+      return h("button", { class: "btn" + (b[2] ? " soft" : ""), text: b[0], onpointerdown: function (ev) { ev.preventDefault(); }, onclick: b[1] });
+    }));
+    qbar.hidden = false;
+  }
+  function qHide() { if (qbar) qbar.hidden = true; qsel = null; }
+  function qAdd() {
+    var s = qsel; qHide(); if (!s) return;
+    (S.qm[s.c] = S.qm[s.c] || []).push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), f: s.f, o: s.o, q: s.q, ts: Date.now() });
+    save();
+    var w = window.getSelection(); if (w) w.removeAllRanges();
+    refreshFrom(s.el);
+  }
+  function qErase(el, c, id) {
+    qHide();
+    S.qm[c] = (S.qm[c] || []).filter(function (m) { return m.id !== id; });
+    if (!S.qm[c].length) delete S.qm[c];
+    S.del[id] = Date.now(); save(); refreshFrom(el);
+  }
+  document.addEventListener("selectionchange", function () {
+    var w = window.getSelection();
+    if (!w || w.isCollapsed || !w.rangeCount) { if (qsel && qsel.q) { clearTimeout(qtimer); qtimer = setTimeout(function () { if (qsel && qsel.q) qHide(); }, 350); } return; }
+    var r = w.getRangeAt(0), sn = r.startContainer, se = sn.nodeType === 1 ? sn : sn.parentElement;
+    var el = se && se.closest ? se.closest("[data-mf].mk-on") : null; if (!el) return;
+    var e = r.endContainer, eo = r.endOffset;
+    if (!el.contains(e)) { e = el; eo = el.childNodes.length; }   // 跨段時只取第一段
+    var r0 = document.createRange(); r0.setStart(el, 0); r0.setEnd(sn, r.startOffset);
+    var r1 = document.createRange(); r1.setStart(el, 0); r1.setEnd(e, eo);
+    var st = r0.toString().length, txt = el.textContent.slice(st, r1.toString().length);
+    var lead = txt.length - txt.replace(/^\s+/, "").length; txt = txt.trim(); st += lead;
+    if (!txt) return;
+    clearTimeout(qtimer);
+    qsel = { el: el, c: el.getAttribute("data-mc"), f: el.getAttribute("data-mf"), o: st, q: txt };
+    qBar([[el.getAttribute("data-mf") === "n" ? "畫重點" : "畫線", qAdd]]);
+  });
+  // 點已畫的線：可以擦掉（只在可畫線的區域）
+  document.addEventListener("click", function (ev) {
+    var mk = ev.target.closest ? ev.target.closest("mark[data-id]") : null;
+    var el = mk && mk.closest("[data-mf].mk-on");
+    if (!el) { if (qbar && !qbar.hidden && !(qsel && qsel.q) && !(qbar.contains(ev.target))) qHide(); return; }
+    var w = window.getSelection(); if (w && !w.isCollapsed) return;
+    ev.preventDefault(); ev.stopPropagation();
+    var c = el.getAttribute("data-mc"), id = mk.getAttribute("data-id");
+    qsel = { erase: true };
+    qBar([["擦掉這條線", function () { qErase(el, c, id); }], ["取消", qHide, 1]]);
+  }, true);
+
+  // 選項：劃記模式時不是按鈕（點了不會作答），點字母可以劃掉選項
+  function optEl(it, i, cls, fn, mode, show) {
+    var k = qid(it.e, it.n), x = show && qxOf(k).indexOf(i) >= 0, q = it.q;
+    var t = mkText("span", "t", q.o[i], k, "o" + i, mode, show);
+    cls = "opt " + (cls || "") + (x ? " x" : "");
+    if (mode) {
+      var L = h("button", { class: "L", type: "button", "aria-label": (x ? "恢復選項 " : "劃掉選項 ") + LET[i], text: LET[i], onclick: function () { toggleX(k, i); refreshFrom(L); } });
+      return h("div", { class: cls + " mk" }, L, t);
+    }
+    var b = h("button", { class: cls, onclick: fn }, h("span", { class: "L", text: LET[i] }), t);
     if (!fn) b.disabled = true;
     return b;
   }
+  function psgEl(it, open, mode, show) {
+    var t = passage(it); if (!t) return null;
+    var d = h("details", { class: "psg" }, h("summary", { text: "短文（第 " + it.q.g + " 題起）" }), mkText("div", "psg-t", t, pkey(it), "g", mode, show));
+    if (open || mode) d.open = true;
+    return d;
+  }
+  function modeBtn(on, fn) {
+    return h("button", { class: "chip qm-btn", "aria-pressed": String(on), text: on ? "✏️ 劃記中" : "✏️ 劃記", onclick: fn });
+  }
+
+  // ---------- 手機作答（逐題） ----------
+  var picked = {};
   function viewPractice(key, n) {
     var set = useSet(key); if (!set || !set.items.length) return go("#/");
     var it = set.items[n - 1]; if (!it) return go(set.back);
     var k = qid(it.e, it.n), pk = picked[k], q = it.q;
+    // 上次的劃記：重寫時預設隱藏，作答後、開劃記或點「顯示」才出現
+    var vis = qmode || pk != null || !!qshow[k], old = hasQm(it);
     var opts = h("div", { class: "opts" });
     q.o.forEach(function (_, i) {
       var cls = pk == null ? "" : ok(q, i) ? "right" : i === pk ? "wrong" : "dim";
-      opts.appendChild(optBtn(q, i, cls, pk == null ? function () { picked[k] = i; record(it.e, it.n, ok(q, i)); save(); viewPractice(key, n); } : null));
+      opts.appendChild(optEl(it, i, cls, pk == null ? function () { picked[k] = i; record(it.e, it.n, ok(q, i)); save(); viewPractice(key, n); } : null, qmode, vis));
     });
+    var tools = h("div", { class: "qtools" }, modeBtn(qmode, function () { qmode = !qmode; qHide(); viewPractice(key, n); }),
+      !vis && old ? h("button", { class: "link", text: "顯示上次劃記（" + old + "）", onclick: function () { qshow[k] = true; viewPractice(key, n); } }) : null);
     var card = h("div", { class: "card" },
       h("div", { class: "qno" }, h("span", { text: n + " / " + set.items.length }), h("span", { text: it.e.short + " 第 " + qno(it) + " 題" })),
-      passageBox(it, true), q.q ? h("div", { class: "qtext", text: q.q }) : null, opts);
+      tools,
+      qmode ? h("div", { class: "small qm-hint", text: "長按選字畫線，點畫過的線可擦掉；點選項字母可劃掉選項。作答前先關掉劃記。" }) : null,
+      psgEl(it, true, qmode, vis), q.q ? mkText("div", "qtext", q.q, k, "q", qmode, vis) : null, opts);
+    card._rf = function () { viewPractice(key, n); };
     if (pk != null) {
       card.appendChild(h("div", { style: "margin-top:14px" }, h("span", { class: "verdict " + (ok(q, pk) ? "ok" : "no"), text: ok(q, pk) ? "答對了" : "答錯，正解是 " + ansText(q) })));
       if (q.note) card.appendChild(h("div", { class: "small", style: "margin-top:6px", text: "考選部更正：" + q.note }));
@@ -335,8 +442,8 @@
     }
     var last = n >= set.items.length, nx = last ? nextTarget(key, set) : null;
     card.appendChild(h("div", { class: "btns" },
-      h("button", { class: "btn soft", text: "上一題", disabled: n <= 1, onclick: function () { go("#/p/" + key + "/" + (n - 1)); } }),
-      h("button", { class: "btn", text: last ? nx.label : "下一題", onclick: function () { if (last) { Object.keys(picked).forEach(function (x) { delete picked[x]; }); delete frozen[key]; go(nx.href); } else go("#/p/" + key + "/" + (n + 1)); } })));
+      h("button", { class: "btn soft", text: "上一題", disabled: n <= 1, onclick: function () { qHide(); go("#/p/" + key + "/" + (n - 1)); } }),
+      h("button", { class: "btn", text: last ? nx.label : "下一題", onclick: function () { qHide(); if (last) { Object.keys(picked).forEach(function (x) { delete picked[x]; }); delete frozen[key]; go(nx.href); } else go("#/p/" + key + "/" + (n + 1)); } })));
     show(topbar(set.back, set.title), card);
   }
   // 線上作答做完後要去哪：節 → 下一節（最後一節 → 下一章第一節）；章 → 下一章；其他回原處
@@ -353,18 +460,47 @@
     if (nextCh) return { href: p[3] ? firstOf(nextCh) : "#/c/" + p[1] + "/" + nextCh.id, label: "完成，下一章 ›" };
     return res;
   }
+  // 我的訂正：寫完後以閱讀模式顯示（隨內容長高，可長按畫重點）；按「編輯」改字，「全螢幕」寫長篇詳解
+  function grow(ta) { ta.style.height = "auto"; ta.style.height = (ta.scrollHeight + 2) + "px"; }
   function noteBox(it) {
-    var k = qid(it.e, it.n);
-    var ta = h("textarea", { id: "nt_" + k.replace(/\W/g, "_"), placeholder: "貼上喜歡的考生詳解，或寫自己的筆記", oninput: function () { S.notes[k] = ta.value; S.nts[k] = Date.now(); save(); } });
-    ta.value = S.notes[k] || "";
-    var cb = h("input", { type: "checkbox", onchange: function () {
-      if (cb.checked) { if (!(S.notes[k] || "").trim()) { cb.checked = false; return toast("先寫訂正內容"); } S.repq[k] = { sent: false, ts: Date.now() }; toast("已加入回報清單"); }
-      else delete S.repq[k];
-      save();
-    } });
-    cb.checked = !!(S.repq[k] && !S.repq[k].sent);
-    return h("div", null, h("div", { class: "small", text: "我的訂正" }), ta,
-      h("label", { class: "rep-ck" }, cb, h("span", { text: "回報給 Claude，補進課文" })));
+    var k = qid(it.e, it.n), box = h("div", { class: "nbox" }), editing = !(S.notes[k] || "").trim();
+    function setNote(v) { if ((S.notes[k] || "") === v) return; S.notes[k] = v; S.nts[k] = Date.now(); save(); }
+    function full() {
+      var ta = h("textarea", { class: "full-ta", placeholder: "貼上喜歡的考生詳解，或寫自己的筆記", oninput: function () { setNote(ta.value); } });
+      ta.value = S.notes[k] || "";
+      var ov = h("div", { class: "full", role: "dialog", "aria-label": "我的訂正" },
+        h("div", { class: "full-head" }, h("div", { class: "h2", text: "我的訂正" }), h("span", { class: "small", text: it.e.short + " 第 " + qno(it) + " 題" }),
+          h("button", { class: "btn", text: "完成", onclick: function () { setNote(ta.value); ov.remove(); document.body.classList.remove("noscroll"); editing = !(S.notes[k] || "").trim(); render(); } })),
+        ta);
+      document.body.appendChild(ov); document.body.classList.add("noscroll"); ta.focus();
+    }
+    function render() {
+      box.replaceChildren();
+      var txt = S.notes[k] || "", btns = h("span", { class: "nbtns" });
+      if (editing) {
+        var ta = h("textarea", { class: "grow", placeholder: "貼上喜歡的考生詳解，或寫自己的筆記", oninput: function () { setNote(ta.value); grow(ta); } });
+        ta.value = txt;
+        btns.appendChild(h("button", { class: "link", text: "全螢幕", onclick: function () { setNote(ta.value); full(); } }));
+        btns.appendChild(h("button", { class: "link strong", text: "完成", onclick: function () { setNote(ta.value); if (!ta.value.trim()) return toast("還沒寫內容"); editing = false; render(); } }));
+        box.appendChild(h("div", { class: "nhead" }, h("span", { class: "small", text: "我的訂正" }), btns));
+        box.appendChild(ta);
+        requestAnimationFrame(function () { grow(ta); });
+      } else {
+        btns.appendChild(h("button", { class: "link", text: "全螢幕", onclick: full }));
+        btns.appendChild(h("button", { class: "link strong", text: "編輯", onclick: function () { editing = true; render(); } }));
+        box.appendChild(h("div", { class: "nhead" }, h("span", { class: "small", text: "我的訂正・長按選字可畫重點" }), btns));
+        box.appendChild(mkText("div", "nview", txt, k, "n", true, true));
+      }
+      var cb = h("input", { type: "checkbox", onchange: function () {
+        if (cb.checked) { if (!(S.notes[k] || "").trim()) { cb.checked = false; return toast("先寫訂正內容"); } S.repq[k] = { sent: false, ts: Date.now() }; toast("已加入回報清單"); }
+        else delete S.repq[k];
+        save();
+      } });
+      cb.checked = !!(S.repq[k] && !S.repq[k].sent);
+      box.appendChild(h("label", { class: "rep-ck" }, cb, h("span", { text: "回報給 Claude，補進課文" })));
+    }
+    box._rf = render; render();
+    return box;
   }
 
   // ---------- 紙本對答案 ----------
@@ -409,12 +545,18 @@
     show(topbar(set.back, set.title), card, wl);
   }
   function wrongBlock(it, mine, no) {
-    var q = it.q, opts = h("div", { class: "opts" });
-    q.o.forEach(function (_, i) { opts.appendChild(optBtn(q, i, ok(q, i) ? "right" : i === mine ? "wrong" : "dim", null)); });
-    return h("div", { class: "wq" },
-      h("div", { class: "qno" }, h("span", { text: (no ? "第 " + no + " 題・" : "") + it.e.short + " #" + qno(it) }), h("span", { text: mine == null && no ? "未作答" : "" })),
-      passageBox(it, false), q.q ? h("div", { class: "qtext", text: q.q }) : null, opts, q.note ? h("div", { class: "small", text: "考選部更正：" + q.note }) : null,
-      h("p", null, h("a", { class: "link-out", href: search(q), target: "_blank", rel: "noopener", text: "到阿摩看考生詳解 ↗" })), noteBox(it));
+    var q = it.q, k = qid(it.e, it.n), wrap = h("div", { class: "wq" }), mode = false, nb = noteBox(it);
+    function render() {
+      var opts = h("div", { class: "opts" });
+      q.o.forEach(function (_, i) { opts.appendChild(optEl(it, i, ok(q, i) ? "right" : i === mine ? "wrong" : "dim", null, mode, true)); });
+      wrap.replaceChildren(
+        h("div", { class: "qno" }, h("span", { text: (no ? "第 " + no + " 題・" : "") + it.e.short + " #" + qno(it) }), h("span", { text: mine == null && no ? "未作答" : "" })),
+        h("div", { class: "qtools" }, modeBtn(mode, function () { mode = !mode; qHide(); render(); })),
+        psgEl(it, false, mode, true), q.q ? mkText("div", "qtext", q.q, k, "q", mode, true) : null, opts, q.note ? h("div", { class: "small", text: "考選部更正：" + q.note }) : null,
+        h("p", null, h("a", { class: "link-out", href: search(q), target: "_blank", rel: "noopener", text: "到阿摩看考生詳解 ↗" })), nb);
+    }
+    wrap._rf = render; render();
+    return wrap;
   }
 
   // ---------- 申論 ----------
@@ -712,38 +854,58 @@
     });
     return lines.join("\n");
   }
+  // 建議一批：10–15 則、6,000 字以內，最好同一章
+  var REP_MAX_N = 15, REP_MAX_C = 6000;
+  function copyText(txt, fallbackTa) {
+    function done() { toast("已複製，貼到對話裡"); }
+    function old() { var t = fallbackTa || h("textarea"); if (!fallbackTa) { t.value = txt; document.body.appendChild(t); } t.select(); document.execCommand("copy"); if (!fallbackTa) t.remove(); done(); }
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(done, old); else old();
+  }
+  function chLabel(grp) { return grp.split("｜").slice(0, 2).join("｜"); }
   function viewReport() {
     var list = pendingReports(), txt = reportText(list);
     var card = h("div", { class: "card" }, h("div", { class: "eyebrow", text: "回報給 Claude" }),
       h("div", { class: "title", text: list.length ? list.length + " 則訂正待回報" : "目前沒有要回報的訂正" }),
       h("div", { class: "muted", text: "在題目的訂正或課文備註勾「回報給 Claude」，就會集中到這裡。複製後貼到和 Claude 的對話，Claude 會把內容補進課文。" }));
     if (!list.length) return show(topbar("#/", "首頁"), card);
-    var rows = h("div", { class: "rows" }), g = null;
-    list.forEach(function (x) {
-      if (x.grp !== g) { g = x.grp; rows.appendChild(h("div", { class: "grp", text: g })); }
-      rows.appendChild(h("div", { class: "rep-item" },
-        h("div", { class: "small", text: x.type === "q" ? "題目・" + x.it.e.short + " 第 " + qno(x.it) + " 題" : "課文畫線" }),
-        h("div", { class: "q", text: x.type === "q" ? clip(x.it.q.q, 80) : "「" + clip(x.m.q, 80) + "」" }),
-        h("div", { class: "n", text: x.note }),
-        h("button", { class: "link", text: "移出清單", onclick: function () {
-          if (x.type === "q") delete S.repq[x.k]; else x.m.rep = false;
-          save(); viewReport();
-        } })));
-    });
-    var ta = h("textarea", { class: "rep-txt", readonly: true }); ta.value = txt;
-    function markSent() {
-      list.forEach(function (x) { if (x.type === "q") x.r.sent = true; else x.m.sent = true; });
+    var big = list.length > REP_MAX_N || txt.length > REP_MAX_C;
+    card.appendChild(h("div", { class: "rep-size" + (big ? " warn" : "") },
+      h("b", { text: "共 " + list.length + " 則、約 " + txt.length.toLocaleString() + " 字" }),
+      h("div", { class: "small", text: big ? "一次送太多，建議用下面的「複製這章」分批送：每批 10–15 則或 6,000 字以內，最好同一章。" : "份量剛好，可以一次送出。建議每批 10–15 則或 6,000 字以內。" })));
+    function markSent(sub) {
+      sub.forEach(function (x) { if (x.type === "q") x.r.sent = true; else x.m.sent = true; });
       save(); toast("已標為送出"); viewReport();
     }
+    var ta = h("textarea", { class: "rep-txt", readonly: true }); ta.value = txt;
     card.appendChild(h("div", { class: "btns" },
-      h("button", { class: "btn", text: "複製給 Claude", onclick: function () {
-        function done() { toast("已複製，貼到對話裡"); }
-        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(done, function () { ta.select(); document.execCommand("copy"); done(); });
-        else { ta.select(); document.execCommand("copy"); done(); }
-      } }),
-      h("button", { class: "btn soft", text: "已送出，清空", onclick: markSent })));
+      h("button", { class: big ? "btn soft" : "btn", text: "複製全部", onclick: function () { copyText(txt, ta); } }),
+      h("button", { class: "btn soft", text: "全部已送出，清空", onclick: function () { markSent(list); } })));
+    // 依章分批
+    var chs = [], byCh = {};
+    list.forEach(function (x) { var c = chLabel(x.grp); if (!byCh[c]) { byCh[c] = []; chs.push(c); } byCh[c].push(x); });
+    var rows = h("div", { class: "rows" });
+    chs.forEach(function (c) {
+      var sub = byCh[c], st = reportText(sub);
+      rows.appendChild(h("div", { class: "rep-ch" },
+        h("div", null, h("div", { class: "nm", text: c }), h("div", { class: "small", text: sub.length + " 則・約 " + st.length.toLocaleString() + " 字" + (sub.length > REP_MAX_N || st.length > REP_MAX_C ? "（偏多，可分兩次）" : "") })),
+        h("div", { class: "rep-ch-btns" },
+          h("button", { class: "btn", text: "複製這章", onclick: function () { copyText(st); } }),
+          h("button", { class: "btn soft", text: "已送出", onclick: function () { markSent(sub); } }))));
+      var g = null;
+      sub.forEach(function (x) {
+        if (x.grp !== g) { g = x.grp; rows.appendChild(h("div", { class: "grp", text: g.split("｜").slice(2).join("｜") || "（本章）" })); }
+        rows.appendChild(h("div", { class: "rep-item" },
+          h("div", { class: "small", text: x.type === "q" ? "題目・" + x.it.e.short + " 第 " + qno(x.it) + " 題" : "課文畫線" }),
+          h("div", { class: "q", text: x.type === "q" ? clip(x.it.q.q, 80) : "「" + clip(x.m.q, 80) + "」" }),
+          h("div", { class: "n", text: clip(x.note, 300) }),
+          h("button", { class: "link", text: "移出清單", onclick: function () {
+            if (x.type === "q") delete S.repq[x.k]; else x.m.rep = false;
+            save(); viewReport();
+          } })));
+      });
+    });
     show(topbar("#/", "首頁"), card, h("div", { class: "card" }, rows),
-      h("div", { class: "card" }, h("div", { class: "small", text: "要複製的文字（也可以長按自己選取）" }), ta));
+      h("div", { class: "card" }, h("div", { class: "small", text: "全部要複製的文字（也可以長按自己選取）" }), ta));
   }
 
   // ---------- 列印 ----------

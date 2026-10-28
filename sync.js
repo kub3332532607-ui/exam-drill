@@ -3,7 +3,7 @@
 (function (root) {
   "use strict";
   var FN = "ks_progress.json", DESC = "國考刷題本進度（自動同步，請勿手動修改）";
-  var FIELDS = ["stats", "attempts", "notes", "nts", "essay", "marks", "repq", "del"];
+  var FIELDS = ["stats", "attempts", "notes", "nts", "essay", "marks", "repq", "del", "qm", "qx"];
   // 裝置自己的設定（theme、print、read）不同步：手機與電腦的字級、版面本來就不一樣。
 
   function num(x) { return +x || 0; }
@@ -44,18 +44,28 @@
     out.del = clone(L.del);
     Object.keys(R.del).forEach(function (id) { out.del[id] = Math.max(num(out.del[id]), num(R.del[id])); });
 
-    // 課文畫線：以 id 聯集，已刪的不復活；同一條兩邊都有時取較新（mt 或 ts）
-    var keys = {}; Object.keys(L.marks).concat(Object.keys(R.marks)).forEach(function (x) { keys[x] = 1; });
-    out.marks = {};
-    Object.keys(keys).forEach(function (mkey) {
-      var byId = {}, order = [];
-      (L.marks[mkey] || []).concat(R.marks[mkey] || []).forEach(function (m) {
-        if (out.del[m.id]) return;
-        var cur = byId[m.id];
-        if (!cur) { byId[m.id] = m; order.push(m.id); }
-        else if (num(m.mt || m.ts) > num(cur.mt || cur.ts)) byId[m.id] = m;
+    // 課文畫線（marks）與題目劃記（qm）：以 id 聯集，已刪的不復活；同一條兩邊都有時取較新（mt 或 ts）
+    function unionMarks(A, B) {
+      var keys = {}, res = {}; Object.keys(A).concat(Object.keys(B)).forEach(function (x) { keys[x] = 1; });
+      Object.keys(keys).forEach(function (mkey) {
+        var byId = {}, order = [];
+        (A[mkey] || []).concat(B[mkey] || []).forEach(function (m) {
+          if (out.del[m.id]) return;
+          var cur = byId[m.id];
+          if (!cur) { byId[m.id] = m; order.push(m.id); }
+          else if (num(m.mt || m.ts) > num(cur.mt || cur.ts)) byId[m.id] = m;
+        });
+        if (order.length) res[mkey] = order.map(function (id) { return byId[id]; });
       });
-      if (order.length) out.marks[mkey] = order.map(function (id) { return byId[id]; });
+      return res;
+    }
+    out.marks = unionMarks(L.marks, R.marks);
+    out.qm = unionMarks(L.qm, R.qm);
+
+    // 刪去法：每題取 ts 較新的
+    Object.keys(R.qx).forEach(function (q) {
+      var a = L.qx[q], b = R.qx[q];
+      if (!a || num(b.ts) > num(a.ts)) out.qx[q] = b;
     });
 
     // 回報清單：聯集；任一邊已回報（sent）就算已回報
