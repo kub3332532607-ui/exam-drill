@@ -3,7 +3,7 @@
   var KS = window.KS, LET = ["A", "B", "C", "D"];
   var app = document.getElementById("app");
   // 版本號：和 sw.js 的 VER 保持一致，改程式時兩邊一起加一
-  var APP_VER = "ks-v27", APP_DATE = "2026-10-29";
+  var APP_VER = "ks-v28", APP_DATE = "2026-10-29";
 
   // ---------- 儲存 ----------
   var KEY = "ks_v1";
@@ -461,6 +461,7 @@
     if (pk != null) {
       card.appendChild(h("div", { style: "margin-top:14px" }, h("span", { class: "verdict " + (ok(q, pk) ? "ok" : "no"), text: ok(q, pk) ? "答對了" : "答錯，正解是 " + ansText(q) })));
       if (q.note) card.appendChild(h("div", { class: "small", style: "margin-top:6px", text: "考選部更正：" + q.note }));
+      if (q.x) card.appendChild(h("div", { class: "small xexp", style: "margin-top:6px;white-space:pre-line", text: "解析：" + q.x }));
       card.appendChild(h("p", null, h("a", { class: "link-out", href: search(q), target: "_blank", rel: "noopener", text: "到阿摩看考生詳解 ↗" })));
       card.appendChild(noteBox(it));
     }
@@ -577,6 +578,7 @@
         h("div", { class: "qno" }, h("span", { text: (no ? "第 " + no + " 題・" : "") + it.e.short + " #" + qno(it) }), h("span", { text: mine == null && no ? "未作答" : "" })),
         h("div", { class: "qtools" }, modeBtn(mode, function () { mode = !mode; qHide(); render(); })),
         psgEl(it, false, mode, true), q.q ? mkText("div", "qtext", q.q, k, "q", mode, true) : null, opts, q.note ? h("div", { class: "small", text: "考選部更正：" + q.note }) : null,
+        q.x ? h("div", { class: "small xexp", style: "white-space:pre-line", text: "解析：" + q.x }) : null,
         h("p", null, h("a", { class: "link-out", href: search(q), target: "_blank", rel: "noopener", text: "到阿摩看考生詳解 ↗" })), nb);
     }
     wrap._rf = render; render();
