@@ -2,6 +2,8 @@
   "use strict";
   var KS = window.KS, LET = ["A", "B", "C", "D"];
   var app = document.getElementById("app");
+  // 版本號：和 sw.js 的 VER 保持一致，改程式時兩邊一起加一
+  var APP_VER = "ks-v16", APP_DATE = "2026-10-28";
 
   // ---------- 儲存 ----------
   var KEY = "ks_v1";
@@ -127,7 +129,39 @@
       syncCard(),
       h("div", { class: "card" }, h("div", { class: "h2", text: "備份" }), h("div", { class: "small", text: "進度存在這個瀏覽器。也可以匯出成檔案，到另一台裝置匯入。" }),
         h("div", { class: "btns" }, h("button", { class: "btn soft", text: "匯出進度", onclick: exportData }), h("label", { class: "btn soft", for: "imp", text: "匯入進度" }),
-          h("input", { id: "imp", type: "file", accept: "application/json", hidden: true, onchange: importData }))));
+          h("input", { id: "imp", type: "file", accept: "application/json", hidden: true, onchange: importData }))),
+      verCard());
+  }
+  // ---------- 版本與更新 ----------
+  function verNum(v) { var m = /ks-v(\d+)/.exec(v || ""); return m ? +m[1] : 0; }
+  function latestVer() {
+    return fetch("sw.js?t=" + Date.now(), { cache: "no-store" }).then(function (r) { return r.text(); })
+      .then(function (t) { var m = /VER\s*=\s*"([^"]+)"/.exec(t); return m ? m[1] : ""; });
+  }
+  function forceUpdate() {
+    toast("更新中…");
+    var jobs = [];
+    if (window.caches) jobs.push(caches.keys().then(function (ks) { return Promise.all(ks.map(function (k) { return caches.delete(k); })); }));
+    if (navigator.serviceWorker) jobs.push(navigator.serviceWorker.getRegistrations().then(function (rs) { return Promise.all(rs.map(function (r) { return r.unregister(); })); }));
+    Promise.all(jobs).catch(function () {}).then(function () { location.reload(); });
+  }
+  function checkUpdate(btn, quiet) {
+    if (btn) { btn.disabled = true; btn.textContent = "檢查中…"; }
+    return latestVer().then(function (v) {
+      if (btn) { btn.disabled = false; btn.textContent = "檢查更新"; }
+      if (verNum(v) > verNum(APP_VER)) { if (quiet) showUpdBar(v); else forceUpdate(); }
+      else if (!quiet) toast("已是最新版（v" + verNum(APP_VER) + "）");
+    }).catch(function () { if (btn) { btn.disabled = false; btn.textContent = "檢查更新"; } if (!quiet) toast("連不到網路，稍後再試"); });
+  }
+  function showUpdBar(v) {
+    if (document.getElementById("updbar")) return;
+    document.body.appendChild(h("button", { id: "updbar", class: "upd-bar", onclick: forceUpdate, text: "有新版 v" + verNum(v) + "，點這裡更新" }));
+  }
+  function verCard() {
+    var btn = h("button", { class: "btn soft", text: "檢查更新", onclick: function () { checkUpdate(btn, false); } });
+    return h("div", { class: "card" }, h("div", { class: "h2", text: "版本" }),
+      h("div", { class: "small", text: "目前版本 v" + verNum(APP_VER) + "（" + APP_DATE + "）。打開時會自動檢查，有新版會在畫面下方提示。" }),
+      h("div", { class: "btns" }, btn));
   }
   // ---------- 雲端同步（私人 Gist） ----------
   var syncing = false;
@@ -787,5 +821,6 @@
   }
   window.addEventListener("hashchange", route);
   load(); applyTheme(); route();
-  if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register("sw.js").catch(function () {});
+  if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).catch(function () {});
+  if (/^https?:$/.test(location.protocol)) setTimeout(function () { checkUpdate(null, true); }, 1500);
 })();

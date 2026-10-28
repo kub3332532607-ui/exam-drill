@@ -259,3 +259,4 @@ details.psg > summary { cursor: pointer; color: var(--accent); font-size: 14px; 
   .sheet { border-radius: 18px; width: min(560px, 100%); }
 }
 .art .fig { text-align: left; }
+.upd-bar{position:fixed;left:50%;bottom:calc(16px + env(safe-area-inset-bottom));transform:translateX(-50%);z-index:50;border:0;border-radius:999px;padding:12px 20px;font:inherit;font-weight:700;background:#c9a24a;color:#16171a;box-shadow:0 6px 20px rgba(0,0,0,.25);cursor:pointer;max-width:calc(100% - 32px)}
