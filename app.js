@@ -3,20 +3,20 @@
   var KS = window.KS, LET = ["A", "B", "C", "D"];
   var app = document.getElementById("app");
   // 版本號：和 sw.js 的 VER 保持一致，改程式時兩邊一起加一
-  var APP_VER = "ks-v29", APP_DATE = "2026-10-29";
+  var APP_VER = "ks-v30", APP_DATE = "2026-10-29";
 
   // ---------- 儲存 ----------
   var KEY = "ks_v1";
   // marks：課文畫線 {節id: [{id,p,q,o,note,rep,sent,ts}]}；repq：題目訂正要回報 {題id: {sent,ts}}；read：閱讀設定
   // qm：題目劃記與訂正畫線、qx：刪去法（見「題目劃記」）；nts：題目訂正的修改時間；del：已刪除畫線的墓碑 {畫線id: 時間}（同步時避免已刪的畫線復活）
-  var S = { stats: {}, attempts: [], notes: {}, nts: {}, essay: {}, theme: "", print: {}, marks: {}, repq: {}, read: {}, del: {}, qm: {}, qx: {}, pos: {}, plan: {} };
+  var S = { stats: {}, attempts: [], notes: {}, nts: {}, essay: {}, theme: "", print: {}, marks: {}, repq: {}, read: {}, del: {}, qm: {}, qx: {}, pos: {}, plan: {}, vw: {} };
   function load() {
     try { var j = JSON.parse(localStorage.getItem(KEY)); if (j) S = Object.assign(S, j); } catch (e) {}
     migrate();
   }
   function migrate() {
     S.attempts.forEach(function (a) { if (!a.set && a.exam) a.set = "e:" + a.exam; });
-    S.essay = S.essay || {}; S.print = S.print || {}; S.marks = S.marks || {}; S.repq = S.repq || {}; S.read = S.read || {}; S.nts = S.nts || {}; S.del = S.del || {}; S.qm = S.qm || {}; S.qx = S.qx || {}; S.pos = S.pos || {}; S.plan = S.plan || {};
+    S.essay = S.essay || {}; S.print = S.print || {}; S.marks = S.marks || {}; S.repq = S.repq || {}; S.read = S.read || {}; S.nts = S.nts || {}; S.del = S.del || {}; S.qm = S.qm || {}; S.qx = S.qx || {}; S.pos = S.pos || {}; S.plan = S.plan || {}; S.vw = S.vw || {};
   }
   function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
   function applyTheme() { if (S.theme) document.documentElement.setAttribute("data-theme", S.theme); else document.documentElement.removeAttribute("data-theme"); }
@@ -203,14 +203,14 @@
         : h("div", { class: "row off" }, h("div", null, h("div", { class: "nm", text: s.name }), h("div", { class: "sub", text: sub })), s.link ? h("a", { class: "pill blue", href: s.link, target: "_blank", rel: "noopener", text: s.linkText }) : h("span")));
     });
     var wr = 0; Object.keys(S.stats).forEach(function (k) { if (S.stats[k].last === "w") wr++; });
-    var rp = pendingReports().length;
+    var rp = pendingReports().length, vn = vwPending().length;
     var L = S.pos.last;
     show(topbar(),
       L && L.href ? h("a", { class: "card row cont-card", href: L.href }, h("div", null, h("div", { class: "eyebrow", text: "繼續上次" }), h("div", { class: "nm", text: L.label }), L.sub ? h("div", { class: "sub", text: L.sub }) : null), h("span", { class: "go", text: "›" })) : null,
       planCard(),
       h("div", { class: "card" }, h("div", { class: "eyebrow", text: "一般行政" }), h("div", { class: "title", text: "今天讀哪一科？" }), h("div", { class: "muted", text: wr ? "錯題本裡還有 " + wr + " 題等你回來。" : "先複習一章，再寫那一章的考古題。" })),
       h("div", { class: "card" }, rows),
-      rp ? h("a", { class: "card row rep-card", href: "#/rep" }, h("div", null, h("div", { class: "nm", text: "回報給 Claude" }), h("div", { class: "sub", text: rp + " 則訂正等著補進課文" })), h("span", { class: "pill blue", text: String(rp) })) : null,
+      rp + vn ? h("a", { class: "card row rep-card", href: "#/rep" }, h("div", null, h("div", { class: "nm", text: "回報給 Claude" }), h("div", { class: "sub", text: [rp ? rp + " 則訂正等著補進課文" : "", vn ? vn + " 個生字等著補進單字程式" : ""].filter(Boolean).join("、") })), h("span", { class: "pill blue", text: String(rp + vn) })) : null,
       syncCard(),
       h("div", { class: "card" }, h("div", { class: "h2", text: "備份" }), h("div", { class: "small", text: "進度存在這個瀏覽器。也可以匯出成檔案，到另一台裝置匯入。" }),
         h("div", { class: "btns" }, h("button", { class: "btn soft", text: "匯出進度", onclick: exportData }), h("label", { class: "btn soft", for: "imp", text: "匯入進度" }),
@@ -410,7 +410,21 @@
     S.qx[k] = { o: o, ts: Date.now() }; save();
   }
   // 把一段文字畫上線：on＝可以選字畫線；show＝顯示已畫的線
-  function mkText(tag, cls, text, c, f, on, show) {
+  // 克漏字空格「_____ 11」：保留原字（畫線位置不變），畫面上改顯示成方框題號；cur＝目前這題 {n, t}
+  var BLANK = /_{3,}\s*(\d{1,2})/g;
+  function blankNodes(s, cur) {
+    if (!cur || s.indexOf("___") < 0) return [document.createTextNode(s)];
+    var out = [], i = 0, m; BLANK.lastIndex = 0;
+    while ((m = BLANK.exec(s))) {
+      if (m.index > i) out.push(document.createTextNode(s.slice(i, m.index)));
+      var on = +m[1] === cur.n;
+      out.push(h("span", { class: "blank" + (on ? " cur" : ""), "data-n": on && cur.t ? m[1] + " " + cur.t : m[1] }, h("span", { class: "bt", text: m[0] })));
+      i = m.index + m[0].length;
+    }
+    if (i < s.length) out.push(document.createTextNode(s.slice(i)));
+    return out;
+  }
+  function mkText(tag, cls, text, c, f, on, show, cur) {
     var el = h(tag, { class: cls + (on ? " mk-on" : ""), "data-mc": c, "data-mf": f });
     text = text || "";
     var n = text.length, at = new Array(n), moved = false;
@@ -424,8 +438,9 @@
     var k = 0;
     while (k < n) {
       var j = k; while (j < n && at[j] === at[k]) j++;
-      var t = document.createTextNode(text.slice(k, j));
-      el.appendChild(at[k] ? h("mark", { class: f === "n" ? "qhl" : "qul", "data-id": at[k].id }, t) : t);
+      var t = blankNodes(text.slice(k, j), cur);
+      if (at[k]) el.appendChild(h("mark", { class: f === "n" ? "qhl" : "qul", "data-id": at[k].id }, t));
+      else t.forEach(function (x) { el.appendChild(x); });
       k = j;
     }
     return el;
@@ -490,19 +505,183 @@
       var L = h("button", { class: "L", type: "button", "aria-label": (x ? "恢復選項 " : "劃掉選項 ") + LET[i], text: LET[i], onclick: function () { toggleX(k, i); refreshFrom(L); } });
       return h("div", { class: cls + " mk" }, L, t);
     }
-    var b = h("button", { class: cls, onclick: fn }, h("span", { class: "L", text: LET[i] }), t);
-    if (!fn) b.disabled = true;
-    return b;
+    // 作答後不是按鈕：可以點選項裡的字查單字
+    if (!fn) return h("div", { class: cls + " done" }, h("span", { class: "L", text: LET[i] }), t);
+    return h("button", { class: cls, onclick: fn }, h("span", { class: "L", text: LET[i] }), t);
   }
-  function psgEl(it, open, mode, show) {
+  // 短文：手機上放在可捲動的框裡（題目留在下方），克漏字自動捲到目前的空格；「全文」可展開
+  var psgTop = {}, psgFull = false;
+  function psgEl(it, open, mode, show, done) {
     var t = passage(it); if (!t) return null;
-    var d = h("details", { class: "psg" }, h("summary", { text: "短文（第 " + it.q.g + " 題起）" }), mkText("div", "psg-t", t, pkey(it), "g", mode, show));
+    var pk = pkey(it), n = qno(it), q = it.q, cloze = !q.q;
+    var cur = { n: n, t: done ? (Array.isArray(q.a) ? q.a : [q.a]).map(function (i) { return q.o[i]; }).join(" / ") : "" };
+    var body = mkText("div", "psg-t", t, pk, "g", mode, show, cur);
+    var box = h("div", { class: "psg-box" + (psgFull ? " full" : ""), onscroll: function () { psgTop[pk] = box.scrollTop; } }, body);
+    var tg = h("button", { class: "link psg-tg", type: "button", text: psgFull ? "縮小" : "看全文", onclick: function () { psgFull = !psgFull; box.classList.toggle("full", psgFull); tg.textContent = psgFull ? "縮小" : "看全文"; } });
+    var d = h("details", { class: "psg" }, h("summary", null, h("span", { text: (cloze ? "克漏字" : "短文") + "（第 " + q.g + " 題起）" })), box, tg);
     if (open || mode) d.open = true;
+    requestAnimationFrame(function () {
+      if (psgFull) return;
+      var b = cloze && body.querySelector(".blank.cur");
+      if (b) box.scrollTop = Math.max(0, b.offsetTop - box.clientHeight / 3);
+      else if (psgTop[pk] != null) box.scrollTop = psgTop[pk];
+    });
     return d;
   }
   function modeBtn(on, fn) {
     return h("button", { class: "chip qm-btn", "aria-pressed": String(on), text: on ? "✏️ 劃記中" : "✏️ 劃記", onclick: fn });
   }
+
+  // ---------- 英文單字（data/vocab.js 由單字程式匯出，第一次用到英文題才載入） ----------
+  // KS.vocab[字] = [詞性, 中文, 例句({}＝單字), 例句中文, 題庫, 題號, 答案標記]
+  // S.vw[字] = {src, ts, sent?, del?}：讀題時加入的生字，回報給 Claude 補進單字程式（會雲端同步）
+  var vocTag = null, vocWait = [], PHR = null, ANS = null;
+  var SAME = { "113調查三等": "113司法三等", "114國安三等": "114警察三等", "114調查三等": "114司法三等", "115國安三等": "115警察三等", "115調查三等": "115司法三等" };
+  var IRR = { sought: "seek", fled: "flee", froze: "freeze", frozen: "freeze", bought: "buy", caught: "catch", taught: "teach", thought: "think", brought: "bring", made: "make", left: "leave", felt: "feel", kept: "keep", held: "hold", told: "tell", found: "find", built: "build", spent: "spend", led: "lead", grew: "grow", grown: "grow", known: "know", shown: "show", taken: "take", given: "give", written: "write", chosen: "choose", children: "child", women: "woman", men: "man", lives: "life", arose: "arise", arisen: "arise", ran: "run", began: "begin", begun: "begin", fell: "fall", fallen: "fall", struck: "strike", sent: "send", sold: "sell", stood: "stand", understood: "understand", won: "win", wore: "wear", worn: "wear", hid: "hide", hidden: "hide", lay: "lie", laid: "lay", paid: "pay", met: "meet", lost: "lose", dealt: "deal", meant: "mean", sought: "seek", shook: "shake", rose: "rise", risen: "rise", broke: "break", broken: "break", spoke: "speak", spoken: "speak", drove: "drive", driven: "drive", ate: "eat", eaten: "eat", fought: "fight", forgot: "forget", forgotten: "forget", forbade: "forbid", forbidden: "forbid", bore: "bear", born: "bear", torn: "tear", swore: "swear", bent: "bend", wept: "weep", slept: "sleep", swept: "sweep", crept: "creep", bled: "bleed", fed: "feed", fled: "flee", bred: "breed", stuck: "stick", struck: "strike", dug: "dig", hung: "hang", wound: "wind", ground: "grind", bound: "bind", sank: "sink", sunk: "sink", shrank: "shrink", shrunk: "shrink" };
+  function vocab(cb) {
+    if (KS.vocab) return KS.vocab;
+    if (cb) vocWait.push(cb);
+    if (!vocTag) {
+      vocTag = document.createElement("script"); vocTag.src = "data/vocab.js";
+      vocTag.onload = function () { var w = vocWait; vocWait = []; w.forEach(function (f) { f(); }); };
+      vocTag.onerror = function () { vocTag = null; vocWait = []; toast("單字庫載入失敗"); };
+      document.head.appendChild(vocTag);
+    }
+    return null;
+  }
+  function bankOf(e) { var b = (e.short || "").replace(/\s+/g, ""); return SAME[b] || b; }
+  function vIndex() {
+    if (ANS || !KS.vocab) return;
+    ANS = {}; PHR = [];
+    Object.keys(KS.vocab).forEach(function (w) {
+      var d = KS.vocab[w], f = d[6];
+      if (/\s/.test(w)) PHR.push(w);
+      if (f) (ANS[d[4] + "#" + (f === 1 ? d[5] : f)] = ANS[d[4] + "#" + (f === 1 ? d[5] : f)] || []).push(w);
+    });
+  }
+  function lookup(raw) {
+    var D = KS.vocab; if (!D || !raw) return null;
+    var w = raw.toLowerCase().replace(/’/g, "'").replace(/'s$/, "").replace(/^'+|'+$/g, "");
+    var c = [w];
+    if (IRR[w]) c.push(IRR[w]);
+    if (/ies$/.test(w)) c.push(w.slice(0, -3) + "y");
+    if (/es$/.test(w)) c.push(w.slice(0, -2));
+    if (/s$/.test(w)) c.push(w.slice(0, -1));
+    if (/ied$/.test(w)) c.push(w.slice(0, -3) + "y");
+    if (/ed$/.test(w)) { c.push(w.slice(0, -2), w.slice(0, -1)); if (/(.)\1ed$/.test(w)) c.push(w.slice(0, -3)); }
+    if (/ing$/.test(w)) { c.push(w.slice(0, -3), w.slice(0, -3) + "e"); if (/(.)\1ing$/.test(w)) c.push(w.slice(0, -4)); }
+    if (/ier$|iest$/.test(w)) c.push(w.replace(/i(er|est)$/, "y"));
+    if (/er$/.test(w)) c.push(w.slice(0, -2), w.slice(0, -1));
+    if (/est$/.test(w)) c.push(w.slice(0, -3), w.slice(0, -2));
+    if (w.indexOf("-") > 0) c.push(w.replace(/-/g, " "), w.replace(/-/g, ""));
+    for (var i = 0; i < c.length; i++) if (D[c[i]]) return { w: c[i], d: D[c[i]] };
+    return null;
+  }
+  function tokens(t) { return (t || "").match(/[A-Za-z][A-Za-z'’-]*[A-Za-z]|[A-Za-z]/g) || []; }
+  function phrasesIn(t) {
+    vIndex(); var low = " " + (t || "").toLowerCase().replace(/[^a-z'’-]+/g, " ") + " ";
+    return PHR.filter(function (p) { return low.indexOf(" " + p + " ") >= 0; });
+  }
+  function vwOn(w) { var x = S.vw[w]; return !!(x && !x.del); }
+  function vwBtn(w, src, big) {
+    var b = h("button", { class: big ? "btn" : "vstar", type: "button" });
+    function upd() { var on = vwOn(w); b.textContent = on ? (big ? "✓ 已加入生字" : "✓生字") : (big ? "＋ 加入生字" : "＋生字"); b.setAttribute("aria-pressed", String(on)); }
+    b.addEventListener("click", function (ev) {
+      ev.stopPropagation();
+      if (vwOn(w)) S.vw[w] = { del: 1, ts: Date.now() }; else S.vw[w] = { src: src, ts: Date.now() };
+      save(); upd(); toast(vwOn(w) ? "已加入生字，會附在回報裡" : "已移出生字");
+    });
+    upd(); return b;
+  }
+  function qLabel(it) { return it.e.short + " 第 " + qno(it) + " 題"; }
+  // 克漏字：從短文找出這一格所在的句子，填回答案
+  function clozeSentence(it) {
+    var t = passage(it); if (!t || it.q.q) return "";
+    var m = new RegExp("_{3,}\\s*" + qno(it) + "(?!\\d)").exec(t); if (!m) return "";
+    var a = m.index, b = m.index + m[0].length;
+    while (a > 0 && !/[.?!\n]/.test(t[a - 1])) a--;
+    while (b < t.length && !/[.?!\n]/.test(t[b])) b++;
+    var q = it.q, ans = (Array.isArray(q.a) ? q.a : [q.a]).map(function (i) { return q.o[i]; }).join(" / ");
+    return (t.slice(a, m.index) + "【" + ans + "】" + t.slice(m.index + m[0].length, b + 1)).replace(/_{3,}\s*\d+/g, "___").trim();
+  }
+  function vRow(w, d, tag, src) {
+    return h("div", { class: "vrow" },
+      tag ? h("span", { class: "vtag" + (tag === "✓" ? " ok" : ""), text: tag }) : h("span", { class: "vtag" }),
+      h("div", { class: "vw" }, h("b", { text: w }), d ? h("span", { class: "pos", text: " " + d[0] }) : null, h("div", { class: "zh", text: d ? d[1] : "單字庫還沒有" })),
+      vwBtn(w, src));
+  }
+  function vocabBox(it) {
+    if (it.e.subject !== "eng") return null;
+    var box = h("details", { class: "vbox", open: true });
+    function render() {
+      var D = vocab(render);
+      box.replaceChildren(h("summary", { text: D ? "本題單字・點題目或選項裡的字也能查" : "本題單字（載入中…）" }));
+      if (!D) return;
+      vIndex();
+      var q = it.q, ans = Array.isArray(q.a) ? q.a : [q.a], src = qLabel(it), seen = {}, rows = [];
+      var hit = ANS[bankOf(it.e) + "#" + qno(it)] || [];
+      function add(raw, tag, keep) {
+        var r = lookup(raw), w = r ? r.w : raw.toLowerCase();
+        if (seen[w] || (!r && !keep)) return; seen[w] = 1;
+        rows.push(vRow(w, r && r.d, tag, src));
+      }
+      function scan(t, tag, keep) {
+        var ph = phrasesIn(t), inPh = {};
+        ph.forEach(function (p) { add(p, tag); p.split(" ").forEach(function (x) { inPh[x] = 1; }); });
+        var tk = tokens(t), one = keep && tk.length === 1;
+        tk.forEach(function (x) { if (!inPh[x.toLowerCase()]) add(x, tag, one && x.length > 2); });
+      }
+      // 句意：答案字的例句若是考卷原句，就是這題的翻譯
+      var tr = null;
+      hit.forEach(function (w) { var d = D[w]; if (!tr && d[3] && d[2].split(" ").length >= 6) tr = d; });
+      var cs = clozeSentence(it);
+      if (cs) box.appendChild(h("div", { class: "vsent" }, h("div", { text: cs }), tr ? h("div", { class: "zh", text: tr[3] }) : null));
+      else if (tr && q.q) box.appendChild(h("div", { class: "vsent" }, h("div", { class: "zh", text: "句意：" + tr[3] })));
+      ans.forEach(function (i) { scan(q.o[i], "✓", true); });
+      hit.forEach(function (w) { add(w, "✓"); });
+      q.o.forEach(function (o, i) { if (ans.indexOf(i) < 0) scan(o, LET[i], true); });
+      scan(q.q, "");
+      if (cs) scan(cs, "");
+      if (!rows.length) box.appendChild(h("div", { class: "small", text: "這題沒有收錄的單字。" }));
+      rows.forEach(function (r) { box.appendChild(r); });
+    }
+    render();
+    return box;
+  }
+  // 點英文字查中文（作答後的選項、題目、短文；劃記模式時不查）
+  var vpop = null;
+  function vHide() { if (vpop) { vpop.remove(); vpop = null; } }
+  function wordAt(x, y) {
+    var node, off;
+    if (document.caretRangeFromPoint) { var r = document.caretRangeFromPoint(x, y); if (!r) return null; node = r.startContainer; off = r.startOffset; }
+    else if (document.caretPositionFromPoint) { var p = document.caretPositionFromPoint(x, y); if (!p) return null; node = p.offsetNode; off = p.offset; }
+    if (!node || node.nodeType !== 3) return null;
+    var s = node.data, a = off, b = off, re = /[A-Za-z'’-]/;
+    while (a > 0 && re.test(s[a - 1])) a--;
+    while (b < s.length && re.test(s[b])) b++;
+    var w = s.slice(a, b).replace(/^['’-]+|['’-]+$/g, "");
+    return /[A-Za-z]{2,}/.test(w) ? w : null;
+  }
+  function showWord(raw, src) {
+    if (!vocab(function () { showWord(raw, src); })) return;
+    vHide();
+    var r = lookup(raw), w = r ? r.w : raw.toLowerCase(), d = r && r.d;
+    vpop = h("div", { class: "vpop", role: "dialog", "aria-label": "查單字" },
+      h("div", { class: "vp-h" }, h("b", { text: w }), d ? h("span", { class: "pos", text: d[0] }) : null),
+      h("div", { class: "zh", text: d ? d[1] : "單字庫還沒有這個字，可以加入生字讓 Claude 補上。" }),
+      h("div", { class: "vp-b" }, vwBtn(w, src, true), h("button", { class: "btn soft", type: "button", text: "關閉", onclick: vHide })));
+    document.body.appendChild(vpop);
+  }
+  document.addEventListener("click", function (ev) {
+    var t = ev.target;
+    if (vpop && vpop.contains(t)) return;
+    var host = t.closest ? t.closest(".eng-lk .qtext, .eng-lk .psg-t, .eng-lk .opt.done .t") : null;
+    if (!host || host.classList.contains("mk-on") || (host.closest(".mk-on"))) { vHide(); return; }
+    var sel = window.getSelection(); if (sel && !sel.isCollapsed) return;
+    var w = wordAt(ev.clientX, ev.clientY); if (!w) { vHide(); return; }
+    var card = host.closest(".eng-lk");
+    showWord(w, card.getAttribute("data-src") || "");
+  });
 
   // ---------- 手機作答（逐題） ----------
   var picked = {};
@@ -527,23 +706,25 @@
     });
     var tools = h("div", { class: "qtools" }, modeBtn(qmode, function () { qmode = !qmode; qHide(); viewPractice(key, n); }),
       !vis && old ? h("button", { class: "link", text: "顯示上次劃記（" + old + "）", onclick: function () { qshow[k] = true; viewPractice(key, n); } }) : null);
-    var card = h("div", { class: "card" },
+    var eng = it.e.subject === "eng";
+    var card = h("div", { class: "card" + (eng ? " eng-lk" : ""), "data-src": eng ? qLabel(it) : null },
       h("div", { class: "qno" }, h("span", { text: n + " / " + set.items.length }), h("span", { text: it.e.short + " 第 " + qno(it) + " 題" })),
       tools,
       qmode ? h("div", { class: "small qm-hint", text: "長按選字畫線，點畫過的線可擦掉；點選項字母可劃掉選項。作答前先關掉劃記。" }) : null,
-      psgEl(it, true, qmode, vis), q.q ? mkText("div", "qtext", q.q, k, "q", qmode, vis) : null, opts);
+      psgEl(it, true, qmode, vis, pk != null), q.q ? mkText("div", "qtext", q.q, k, "q", qmode, vis) : null, opts);
     card._rf = function () { viewPractice(key, n); };
     if (pk != null) {
       card.appendChild(h("div", { style: "margin-top:14px" }, h("span", { class: "verdict " + (ok(q, pk) ? "ok" : "no"), text: ok(q, pk) ? "答對了" : "答錯，正解是 " + ansText(q) })));
       if (q.note) card.appendChild(h("div", { class: "small", style: "margin-top:6px", text: "考選部更正：" + q.note }));
       if (q.x) card.appendChild(h("div", { class: "small xexp", style: "margin-top:6px;white-space:pre-line", text: "解析：" + q.x }));
+      card.appendChild(vocabBox(it));
       card.appendChild(h("p", null, h("a", { class: "link-out", href: search(q), target: "_blank", rel: "noopener", text: "到阿摩看考生詳解 ↗" })));
       card.appendChild(noteBox(it));
     }
     var last = n >= set.items.length, nx = last ? nextTarget(key, set) : null;
     card.appendChild(h("div", { class: "btns" },
-      h("button", { class: "btn soft", text: "上一題", disabled: n <= 1, onclick: function () { qHide(); go("#/p/" + key + "/" + (n - 1)); } }),
-      h("button", { class: "btn", text: last ? nx.label : "下一題", onclick: function () { qHide(); if (last) { Object.keys(picked).forEach(function (x) { delete picked[x]; }); delete frozen[key]; if (key.charAt(0) !== "w") setPos("pr:" + key, { n: 1, done: true }); go(nx.href); } else go("#/p/" + key + "/" + (n + 1)); } })));
+      h("button", { class: "btn soft", text: "上一題", disabled: n <= 1, onclick: function () { qHide(); vHide(); go("#/p/" + key + "/" + (n - 1)); } }),
+      h("button", { class: "btn", text: last ? nx.label : "下一題", onclick: function () { qHide(); vHide(); if (last) { Object.keys(picked).forEach(function (x) { delete picked[x]; }); delete frozen[key]; if (key.charAt(0) !== "w") setPos("pr:" + key, { n: 1, done: true }); go(nx.href); } else go("#/p/" + key + "/" + (n + 1)); } })));
     show(topbar(set.back, set.title), card);
   }
   // 線上作答做完後要去哪：節 → 下一節（最後一節 → 下一章第一節）；章 → 下一章；其他回原處
@@ -645,15 +826,16 @@
     show(topbar(set.back, set.title), card, wl);
   }
   function wrongBlock(it, mine, no) {
-    var q = it.q, k = qid(it.e, it.n), wrap = h("div", { class: "wq" }), mode = false, nb = noteBox(it);
+    var q = it.q, k = qid(it.e, it.n), wrap = h("div", { class: "wq" + (it.e.subject === "eng" ? " eng-lk" : ""), "data-src": it.e.subject === "eng" ? qLabel(it) : null }), mode = false, nb = noteBox(it);
     function render() {
       var opts = h("div", { class: "opts" });
       q.o.forEach(function (_, i) { opts.appendChild(optEl(it, i, ok(q, i) ? "right" : i === mine ? "wrong" : "dim", null, mode, true)); });
       wrap.replaceChildren(
         h("div", { class: "qno" }, h("span", { text: (no ? "第 " + no + " 題・" : "") + it.e.short + " #" + qno(it) }), h("span", { text: mine == null && no ? "未作答" : "" })),
         h("div", { class: "qtools" }, modeBtn(mode, function () { mode = !mode; qHide(); render(); })),
-        psgEl(it, false, mode, true), q.q ? mkText("div", "qtext", q.q, k, "q", mode, true) : null, opts, q.note ? h("div", { class: "small", text: "考選部更正：" + q.note }) : null,
+        psgEl(it, false, mode, true, true), q.q ? mkText("div", "qtext", q.q, k, "q", mode, true) : null, opts, q.note ? h("div", { class: "small", text: "考選部更正：" + q.note }) : null,
         q.x ? h("div", { class: "small xexp", style: "white-space:pre-line", text: "解析：" + q.x }) : null,
+        vocabBox(it),
         h("p", null, h("a", { class: "link-out", href: search(q), target: "_blank", rel: "noopener", text: "到阿摩看考生詳解 ↗" })), nb);
     }
     wrap._rf = render; render();
@@ -1010,12 +1192,37 @@
     if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(done, old); else old();
   }
   function chLabel(grp) { return grp.split("｜").slice(0, 2).join("｜"); }
+  // 生字回報：讀英文題時加入的生字，貼給 Claude 補進單字程式
+  function vwPending() {
+    return Object.keys(S.vw).filter(function (w) { var x = S.vw[w]; return !x.del && !x.sent; }).sort(function (a, b) { return S.vw[a].ts - S.vw[b].ts; });
+  }
+  function vwText(ws) {
+    var d = new Date(), day = d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2) + "-" + ("0" + d.getDate()).slice(-2);
+    return ["【單字回報】" + day, "讀題時不會的字，請補進單字程式（單字庫已有的字就當難字處理）：", ""].concat(ws.map(function (w, i) {
+      return (i + 1) + ". " + w + "｜" + (S.vw[w].src || "") + "｜" + (KS.vocab ? (KS.vocab[w] ? "單字庫已有" : "單字庫沒有") : "");
+    })).join("\n");
+  }
+  function vwCard() {
+    var ws = vwPending(); if (!ws.length) return null;
+    var txt = vwText(ws), list = h("div", { class: "rows" });
+    ws.forEach(function (w) {
+      list.appendChild(h("div", { class: "rep-item" }, h("div", { class: "q", text: w }), h("div", { class: "small", text: S.vw[w].src || "" }),
+        h("button", { class: "link", text: "移出清單", onclick: function () { S.vw[w] = { del: 1, ts: Date.now() }; save(); viewReport(); } })));
+    });
+    return h("div", { class: "card" }, h("div", { class: "h2", text: "生字 " + ws.length + " 個" }),
+      h("div", { class: "small", text: "讀英文題時按「＋生字」的字。複製後貼給 Claude，會補進單字程式。" }),
+      h("div", { class: "btns" },
+        h("button", { class: "btn", text: "複製生字", onclick: function () { copyText(txt); } }),
+        h("button", { class: "btn soft", text: "已送出，清空", onclick: function () { ws.forEach(function (w) { S.vw[w] = Object.assign({}, S.vw[w], { sent: 1, ts: Date.now() }); }); save(); toast("已標為送出"); viewReport(); } })),
+      list);
+  }
   function viewReport() {
-    var list = pendingReports(), txt = reportText(list);
+    if (vwPending().length && !KS.vocab) vocab(function () { if (location.hash === "#/rep") viewReport(); });
+    var list = pendingReports(), txt = reportText(list), vc = vwCard();
     var card = h("div", { class: "card" }, h("div", { class: "eyebrow", text: "回報給 Claude" }),
       h("div", { class: "title", text: list.length ? list.length + " 則訂正待回報" : "目前沒有要回報的訂正" }),
       h("div", { class: "muted", text: "在題目的訂正或課文備註勾「回報給 Claude」，就會集中到這裡。複製後貼到和 Claude 的對話，Claude 會把內容補進課文。" }));
-    if (!list.length) return show(topbar("#/", "首頁"), card);
+    if (!list.length) return show(topbar("#/", "首頁"), vc ? null : card, vc);
     var big = list.length > REP_MAX_N || txt.length > REP_MAX_C;
     card.appendChild(h("div", { class: "rep-size" + (big ? " warn" : "") },
       h("b", { text: "共 " + list.length + " 則、約 " + txt.length.toLocaleString() + " 字" }),
@@ -1052,7 +1259,7 @@
           } })));
       });
     });
-    show(topbar("#/", "首頁"), card, h("div", { class: "card" }, rows),
+    show(topbar("#/", "首頁"), card, vc, h("div", { class: "card" }, rows),
       h("div", { class: "card" }, h("div", { class: "small", text: "全部要複製的文字（也可以長按自己選取）" }), ta));
   }
 
@@ -1113,7 +1320,7 @@
   // ---------- 路由 ----------
   function route() {
     var p = (location.hash || "#/").replace(/^#\/?/, "").split("/").map(decodeURIComponent);
-    window.scrollTo(0, 0);
+    window.scrollTo(0, 0); vHide();
     app.className = "v-" + (p[0] || "home");
     switch (p[0]) {
       case "s": if (subj(p[1])) return viewSubject(p[1], p[2]); break;
