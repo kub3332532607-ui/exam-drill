@@ -3,20 +3,20 @@
   var KS = window.KS, LET = ["A", "B", "C", "D"];
   var app = document.getElementById("app");
   // 版本號：和 sw.js 的 VER 保持一致，改程式時兩邊一起加一
-  var APP_VER = "ks-v28", APP_DATE = "2026-10-29";
+  var APP_VER = "ks-v29", APP_DATE = "2026-10-29";
 
   // ---------- 儲存 ----------
   var KEY = "ks_v1";
   // marks：課文畫線 {節id: [{id,p,q,o,note,rep,sent,ts}]}；repq：題目訂正要回報 {題id: {sent,ts}}；read：閱讀設定
   // qm：題目劃記與訂正畫線、qx：刪去法（見「題目劃記」）；nts：題目訂正的修改時間；del：已刪除畫線的墓碑 {畫線id: 時間}（同步時避免已刪的畫線復活）
-  var S = { stats: {}, attempts: [], notes: {}, nts: {}, essay: {}, theme: "", print: {}, marks: {}, repq: {}, read: {}, del: {}, qm: {}, qx: {}, pos: {} };
+  var S = { stats: {}, attempts: [], notes: {}, nts: {}, essay: {}, theme: "", print: {}, marks: {}, repq: {}, read: {}, del: {}, qm: {}, qx: {}, pos: {}, plan: {} };
   function load() {
     try { var j = JSON.parse(localStorage.getItem(KEY)); if (j) S = Object.assign(S, j); } catch (e) {}
     migrate();
   }
   function migrate() {
     S.attempts.forEach(function (a) { if (!a.set && a.exam) a.set = "e:" + a.exam; });
-    S.essay = S.essay || {}; S.print = S.print || {}; S.marks = S.marks || {}; S.repq = S.repq || {}; S.read = S.read || {}; S.nts = S.nts || {}; S.del = S.del || {}; S.qm = S.qm || {}; S.qx = S.qx || {}; S.pos = S.pos || {};
+    S.essay = S.essay || {}; S.print = S.print || {}; S.marks = S.marks || {}; S.repq = S.repq || {}; S.read = S.read || {}; S.nts = S.nts || {}; S.del = S.del || {}; S.qm = S.qm || {}; S.qx = S.qx || {}; S.pos = S.pos || {}; S.plan = S.plan || {};
   }
   function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
   function applyTheme() { if (S.theme) document.documentElement.setAttribute("data-theme", S.theme); else document.documentElement.removeAttribute("data-theme"); }
@@ -116,6 +116,80 @@
       h("a", { class: "btn soft", href: "#/p/" + key + "/1", text: "從頭作答", onclick: function () { setPos("pr:" + key, { n: 1, done: true }); delete frozen[key]; Object.keys(picked).forEach(function (x) { delete picked[x]; }); } })];
   }
 
+
+  // ---------- 今日任務（倒數＋每日清單） ----------
+  // S.plan（會同步）：{ "YYYY-MM-DD": { 任務id: 完成時間 } }。任務內容依日期與階段自動產生，只存打勾。
+  var EXAMS = [{ name: "地特四等", d: "2026-12-05" }, { name: "高普考", d: "2027-07-02" }];
+  var VOCAB = "https://claude.ai/artifact/WFkk5GwjDHk7HbVjvNf4MG";
+  function ymd(d) { return d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2) + "-" + ("0" + d.getDate()).slice(-2); }
+  function daysTo(ds) { var t = new Date(), a = new Date(t.getFullYear(), t.getMonth(), t.getDate()), p = ds.split("-"); return Math.round((new Date(+p[0], +p[1] - 1, +p[2]) - a) / 864e5); }
+  function nextSec(sid) {
+    var cs = chapters(sid);
+    for (var i = 0; i < cs.length; i++) for (var j = 0; j < (cs[i].sections || []).length; j++) {
+      var x = cs[i].sections[j], r = S.pos["rd:" + sid + ":" + x.id];
+      if (!(r && r.fin)) return { sid: sid, cid: cs[i].id, x: x, pc: r && r.pc };
+    }
+    return null;
+  }
+  function wrongBySubject() {
+    var m = {}, tot = 0;
+    KS.exams.forEach(function (e) { e.questions.forEach(function (q, i) { var st = stat(e, i + 1); if (st && st.last === "w") { m[e.subject] = (m[e.subject] || 0) + 1; tot++; } }); });
+    return { m: m, tot: tot };
+  }
+  function planTasks() {
+    var d0 = new Date(), dow = d0.getDay(), today = ymd(d0), T = [];
+    var wb = wrongBySubject();
+    var rot = { 1: "con", 2: "adm", 3: "pol", 4: "jur", 5: "alaw", 6: "chn", 0: "" };   // 週日：錯題總複習
+    var phase = daysTo(EXAMS[0].d) >= 0 ? 1 : daysTo("2027-04-01") > 0 ? 2 : 3;
+    var sid = rot[dow];
+    T.push({ id: "voc", t: phase === 3 ? "單字 10 分鐘" : "單字 20 分鐘", sub: "先背考卷單字，再寫那份題", href: VOCAB, ext: true });
+    if (phase === 1) T.push({ id: "eng", t: "英文題 10 題", sub: "英文占 20/50 題", href: "#/s/eng/ex" });
+    if (sid) {
+      var s = subj(sid), ns = nextSec(sid);
+      if (phase === 3) T.push({ id: "rev", t: s.name + " 重複複習", sub: "只看錯題、法條、時事", href: "#/s/" + sid });
+      else if (ns) T.push({ id: "rd", t: s.name + "：讀一節", sub: ns.x.title + (ns.pc ? "（讀到 " + ns.pc + "%）" : ""), href: "#/rd/" + sid + "/" + ns.cid + "/" + ns.x.id });
+      else T.push({ id: "rd", t: s.name + "：課文已讀完一輪", sub: "改做考卷題", href: "#/s/" + sid + "/ex" });
+      if (phase !== 3) T.push({ id: "qs", t: s.name + " 選擇題 15 題", sub: "做完看解析", href: "#/s/" + sid + "/ex" });
+      if (phase === 2 && (sid === "pol" || sid === "adm" || sid === "pub")) T.push({ id: "es", t: s.name + " 申論 1 題", sub: "寫骨架或默寫架構", href: "#/s/" + sid });
+    } else T.push({ id: "wk", t: "週日總複習", sub: "挑本週最弱的一科回頭看", href: "#/" });
+    if (wb.tot) {
+      var top = Object.keys(wb.m).sort(function (a, b) { return wb.m[b] - wb.m[a]; })[0];
+      T.push({ id: "wr", t: "錯題複習（共 " + wb.tot + " 題）", sub: subj(top).name + " 最多，" + wb.m[top] + " 題", href: "#/s/" + top + "/wr" });
+    }
+    return { date: today, phase: phase, tasks: T };
+  }
+  function planDone(date, T) { var p = S.plan[date] || {}; return T.length && T.every(function (t) { return p[t.id]; }); }
+  function streak(todayDone, today) {
+    var n = todayDone ? 1 : 0, d = new Date();
+    for (var i = 1; i < 400; i++) {
+      d.setDate(d.getDate() - 1);
+      var p = S.plan[ymd(d)];
+      if (p && p._ok) n++; else if (i === 1 && !todayDone) continue; else break;
+    }
+    return n;
+  }
+  function planCard() {
+    var P = planTasks(), pl = S.plan[P.date] = S.plan[P.date] || {};
+    var done = P.tasks.filter(function (t) { return pl[t.id]; }).length, all = done === P.tasks.length;
+    if (all && !pl._ok) { pl._ok = Date.now(); save(); } else if (!all && pl._ok) { delete pl._ok; save(); }
+    var cds = EXAMS.map(function (e) { var n = daysTo(e.d); return n >= 0 ? h("div", { class: "cd" }, h("div", { class: "cdn", text: String(n) }), h("div", { class: "cdl", text: "天・" + e.name })) : null; });
+    var list = P.tasks.map(function (t) {
+      var on = !!pl[t.id];
+      var box = h("button", { class: "tk-box" + (on ? " on" : ""), "aria-label": "完成", text: on ? "✓" : "", onclick: function () {
+        if (pl[t.id]) delete pl[t.id]; else pl[t.id] = Date.now();
+        pl._t = Date.now(); save(); route();
+      } });
+      return h("div", { class: "tk-row" }, box,
+        h("a", { class: "tk-main", href: t.href, target: t.ext ? "_blank" : null, rel: t.ext ? "noopener" : null }, h("div", { class: "nm" + (on ? " off" : ""), text: t.t }), h("div", { class: "sub", text: t.sub })));
+    });
+    var sk = streak(all, P.date);
+    return h("div", { class: "card plan-card" },
+      h("div", { class: "cds" }, cds),
+      h("div", { class: "eyebrow", text: "今日任務　" + done + "/" + P.tasks.length + (sk ? "　連續 " + sk + " 天" : "") }),
+      list,
+      h("div", { class: "small", text: all ? "今天完成了，記得按一次雲端同步。" : P.phase === 1 ? "地特前：先單字，再共同科目選擇題。" : P.phase === 2 ? "12 月後：專業科目輪讀＋申論骨架。" : "衝刺：只重複、不練新題型。" }));
+  }
+
   // ---------- 首頁 ----------
   function viewHome() {
     var rows = h("div", { class: "rows" });
@@ -133,6 +207,7 @@
     var L = S.pos.last;
     show(topbar(),
       L && L.href ? h("a", { class: "card row cont-card", href: L.href }, h("div", null, h("div", { class: "eyebrow", text: "繼續上次" }), h("div", { class: "nm", text: L.label }), L.sub ? h("div", { class: "sub", text: L.sub }) : null), h("span", { class: "go", text: "›" })) : null,
+      planCard(),
       h("div", { class: "card" }, h("div", { class: "eyebrow", text: "一般行政" }), h("div", { class: "title", text: "今天讀哪一科？" }), h("div", { class: "muted", text: wr ? "錯題本裡還有 " + wr + " 題等你回來。" : "先複習一章，再寫那一章的考古題。" })),
       h("div", { class: "card" }, rows),
       rp ? h("a", { class: "card row rep-card", href: "#/rep" }, h("div", null, h("div", { class: "nm", text: "回報給 Claude" }), h("div", { class: "sub", text: rp + " 則訂正等著補進課文" })), h("span", { class: "pill blue", text: String(rp) })) : null,

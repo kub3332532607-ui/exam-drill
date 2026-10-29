@@ -3,7 +3,7 @@
 (function (root) {
   "use strict";
   var FN = "ks_progress.json", DESC = "國考刷題本進度（自動同步，請勿手動修改）";
-  var FIELDS = ["stats", "attempts", "notes", "nts", "essay", "marks", "repq", "del", "qm", "qx", "pos"];
+  var FIELDS = ["stats", "attempts", "notes", "nts", "essay", "marks", "repq", "del", "qm", "qx", "pos", "plan"];
   // 裝置自己的設定（theme、print、read）不同步：手機與電腦的字級、版面本來就不一樣。
 
   function num(x) { return +x || 0; }
@@ -72,6 +72,15 @@
     Object.keys(R.qx).forEach(function (q) {
       var a = L.qx[q], b = R.qx[q];
       if (!a || num(b.ts) > num(a.ts)) out.qx[q] = b;
+    });
+
+    // 每日任務：每天每個任務取聯集（任一邊打勾就算完成；_t 為最後修改，較新的一邊決定取消勾選）
+    Object.keys(R.plan).forEach(function (day) {
+      var a = L.plan[day], b = R.plan[day];
+      if (!a) { out.plan[day] = b; return; }
+      var w = num(b._t) > num(a._t) ? b : a, o = out.plan[day] = Object.assign({}, a, b);
+      Object.keys(o).forEach(function (t) { if (t.charAt(0) !== "_" && !w[t]) delete o[t]; });
+      o._t = Math.max(num(a._t), num(b._t));
     });
 
     // 回報清單：聯集；任一邊已回報（sent）就算已回報
