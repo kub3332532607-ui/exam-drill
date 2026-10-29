@@ -3,7 +3,7 @@
 (function (root) {
   "use strict";
   var FN = "ks_progress.json", DESC = "國考刷題本進度（自動同步，請勿手動修改）";
-  var FIELDS = ["stats", "attempts", "notes", "nts", "essay", "marks", "repq", "del", "qm", "qx", "pos", "plan", "vw"];
+  var FIELDS = ["stats", "attempts", "notes", "nts", "essay", "marks", "repq", "del", "qm", "qx", "pos", "plan", "vw", "tl"];
   // 裝置自己的設定（theme、print、read）不同步：手機與電腦的字級、版面本來就不一樣。
 
   function num(x) { return +x || 0; }
@@ -87,6 +87,12 @@
     Object.keys(R.vw).forEach(function (w) {
       var a = L.vw[w], b = R.vw[w];
       if (!a || num(b.ts) > num(a.ts)) out.vw[w] = b;
+    });
+
+    // 計時紀錄（tl）：每筆取 ts 較新的（刪除記為 del）
+    Object.keys(R.tl).forEach(function (id) {
+      var a = L.tl[id], b = R.tl[id];
+      if (!a || num(b.ts) > num(a.ts)) out.tl[id] = b;
     });
 
     // 回報清單：聯集；任一邊已回報（sent）就算已回報

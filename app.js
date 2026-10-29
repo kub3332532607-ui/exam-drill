@@ -3,20 +3,20 @@
   var KS = window.KS, LET = ["A", "B", "C", "D"];
   var app = document.getElementById("app");
   // 版本號：和 sw.js 的 VER 保持一致，改程式時兩邊一起加一
-  var APP_VER = "ks-v31", APP_DATE = "2026-10-29";
+  var APP_VER = "ks-v32", APP_DATE = "2026-10-29";
 
   // ---------- 儲存 ----------
   var KEY = "ks_v1";
   // marks：課文畫線 {節id: [{id,p,q,o,note,rep,sent,ts}]}；repq：題目訂正要回報 {題id: {sent,ts}}；read：閱讀設定
   // qm：題目劃記與訂正畫線、qx：刪去法（見「題目劃記」）；nts：題目訂正的修改時間；del：已刪除畫線的墓碑 {畫線id: 時間}（同步時避免已刪的畫線復活）
-  var S = { stats: {}, attempts: [], notes: {}, nts: {}, essay: {}, theme: "", print: {}, marks: {}, repq: {}, read: {}, del: {}, qm: {}, qx: {}, pos: {}, plan: {}, vw: {} };
+  var S = { stats: {}, attempts: [], notes: {}, nts: {}, essay: {}, theme: "", print: {}, marks: {}, repq: {}, read: {}, del: {}, qm: {}, qx: {}, pos: {}, plan: {}, vw: {}, tl: {}, run: null };
   function load() {
     try { var j = JSON.parse(localStorage.getItem(KEY)); if (j) S = Object.assign(S, j); } catch (e) {}
     migrate();
   }
   function migrate() {
     S.attempts.forEach(function (a) { if (!a.set && a.exam) a.set = "e:" + a.exam; });
-    S.essay = S.essay || {}; S.print = S.print || {}; S.marks = S.marks || {}; S.repq = S.repq || {}; S.read = S.read || {}; S.nts = S.nts || {}; S.del = S.del || {}; S.qm = S.qm || {}; S.qx = S.qx || {}; S.pos = S.pos || {}; S.plan = S.plan || {}; S.vw = S.vw || {};
+    S.essay = S.essay || {}; S.print = S.print || {}; S.marks = S.marks || {}; S.repq = S.repq || {}; S.read = S.read || {}; S.nts = S.nts || {}; S.del = S.del || {}; S.qm = S.qm || {}; S.qx = S.qx || {}; S.pos = S.pos || {}; S.plan = S.plan || {}; S.vw = S.vw || {}; S.tl = S.tl || {};
   }
   function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
   function applyTheme() { if (S.theme) document.documentElement.setAttribute("data-theme", S.theme); else document.documentElement.removeAttribute("data-theme"); }
@@ -149,28 +149,58 @@
   }
   function planTasks() {
     var d0 = new Date(), dow = d0.getDay(), today = ymd(d0), T = [];
-    var wb = wrongBySubject();
-    var rot = { 1: "con", 2: "adm", 3: "pol", 4: "jur", 5: "alaw", 6: "chn", 0: "" };   // 週日：錯題總複習
-    var phase = daysTo(EXAMS[0].d) >= 0 ? 1 : daysTo("2027-04-01") > 0 ? 2 : 3;
-    var sid = rot[dow];
-    T.push({ id: "voc", t: phase === 3 ? "單字 10 分鐘" : "單字 20 分鐘", sub: "先背考卷單字，再寫那份題", href: VOCAB, ext: true });
-    if (phase === 1) T.push({ id: "eng", t: "英文題 10 題", sub: "英文占 20/50 題", href: "#/s/eng/ex" });
-    if (sid) {
+    var wb = wrongBySubject(), top = Object.keys(wb.m).sort(function (a, b) { return wb.m[b] - wb.m[a]; })[0];
+    function add(id, t, sub, href, min, tier, sid, ext) { T.push({ id: id, t: t, sub: sub, href: href, min: min, tier: tier, sid: sid, ext: ext }); }
+    function vocab0(min) { add("voc", "單字", "先背考卷單字，再寫那份題", VOCAB, min, 0, "eng", true); }
+    function readSec(sid, min, qmin) {
       var s = subj(sid), ns = daySec(today, sid);
-      if (phase === 3) T.push({ id: "rev", t: s.name + " 重複複習", sub: "只看錯題、法條、時事", href: "#/s/" + sid });
-      else if (ns) T.push({ id: "rd", t: s.name + "：讀一節", sub: ns.x.title + (ns.fin ? "（已讀完）" : ns.pc ? "（讀到 " + ns.pc + "%）" : ""), href: "#/rd/" + sid + "/" + ns.cid + "/" + ns.x.id });
-      else T.push({ id: "rd", t: s.name + "：課文已讀完一輪", sub: "改做考卷題", href: "#/s/" + sid + "/ex" });
-      if (phase !== 3) T.push({ id: "qs", t: s.name + " 選擇題 15 題", sub: "做完看解析", href: "#/s/" + sid + "/ex" });
-      if (phase === 2 && (sid === "pol" || sid === "adm" || sid === "pub")) T.push({ id: "es", t: s.name + " 申論 1 題", sub: "寫骨架或默寫架構", href: "#/s/" + sid });
-    } else T.push({ id: "wk", t: "週日總複習", sub: "挑本週最弱的一科回頭看", href: "#/" });
-    if (wb.tot) {
-      var top = Object.keys(wb.m).sort(function (a, b) { return wb.m[b] - wb.m[a]; })[0];
-      T.push({ id: "wr", t: "錯題複習（共 " + wb.tot + " 題）", sub: subj(top).name + " 最多，" + wb.m[top] + " 題", href: "#/s/" + top + "/wr" });
+      if (!ns) { add("qs", s.name + "：刷 30 題", "課文已讀完一輪", "#/s/" + sid + "/ex", qmin + 15, 0, sid); return; }
+      add("rd", s.name + "：讀一節", ns.x.title + (ns.fin ? "（已讀完）" : ns.pc ? "（讀到 " + ns.pc + "%）" : ""), "#/rd/" + sid + "/" + ns.cid + "/" + ns.x.id, min, 0, sid);
+      var key = "c:" + sid + ":" + ns.cid + ":" + ns.x.id, st = getSet(key);
+      add("qs", s.name + "：本節題目", st && st.items.length ? "共 " + st.items.length + " 題，做完看解析" : "本節沒有題目，改做考卷 15 題", st && st.items.length ? "#/p/" + key + "/1" : "#/s/" + sid + "/ex", qmin, 0, sid);
+    }
+    var phase = today < "2026-11-23" ? "A" : today < "2026-12-02" ? "B" : today < "2026-12-05" ? "C" : today === "2026-12-05" ? "X" : daysTo("2027-04-01") > 0 ? 2 : 3;
+    if (phase === "A") {
+      // 地特前補強：保底＝單字＋英文＋一科讀一節＋本節題目；加碼＝第二科刷題、錯題、週六作文
+      var ROT = { 1: ["con", "alaw"], 2: ["adm", "pol"], 3: ["jur", "alaw"], 4: ["adm", "con"], 5: ["con", "jur"], 6: ["adm", "alaw"], 0: [null, "pol"] }[dow];
+      vocab0(20);
+      add("eng", "英文 10 題", "英文占法學知識與英文 20/50 題", "#/s/eng/ex", 20, 0, "eng");
+      if (ROT[0]) readSec(ROT[0], 40, 25);
+      else {
+        add("wk", "錯題總複習", wb.tot ? "本週錯題回頭看，" + subj(top).name + " 最多" : "挑本週最弱的一科回頭看", wb.tot ? "#/s/" + top + "/wr" : "#/", 40, 0, top || "");
+        add("chn", "國文測驗 15 題", "字音字形、成語、閱讀", "#/s/chn/ex", 25, 0, "chn");
+      }
+      add("q2", subj(ROT[1]).name + "：刷 30 題", ROT[1] === "alaw" ? "行政法課文還沒寫，先以題目熟悉考點" : "做完看解析，錯的加訂正", "#/s/" + ROT[1] + "/ex", 45, 1, ROT[1]);
+      if (dow === 6) add("es", "國文作文一篇", "限時 50 分鐘，寫完拍照或打字存下", "#/s/chn", 50, 1, "chn");
+      if (wb.tot && ROT[0]) add("wr", "錯題複習", "共 " + wb.tot + " 題，" + subj(top).name + " 最多", "#/s/" + top + "/wr", 20, 1, top);
+    } else if (phase === "B") {
+      // 模擬期：每天一份考卷計時寫，寫完檢討
+      var M = [["con", "法學知識與英文", "憲法、法緒、英文各一份歷屆卷", 60], ["adm", "行政學", "一份地特四等或普考", 60], ["alaw", "行政法", "一份地特四等或普考", 60], ["pol", "政治學", "一份歷屆卷", 60], ["chn", "國文", "測驗＋作文", 90]];
+      var m = M[Math.round((new Date(today) - new Date("2026-11-23")) / 864e5) % M.length];
+      vocab0(20);
+      add("mk", m[1] + " 模擬考", m[2] + "，計時寫完再對答案", "#/s/" + m[0] + "/ex", m[3], 0, m[0]);
+      add("rv", "檢討今天的錯題", "看解析、寫訂正", "#/s/" + m[0] + "/wr", 40, 0, m[0]);
+      add("eng", "英文 10 題", "保持手感", "#/s/eng/ex", 20, 1, "eng");
+      if (wb.tot) add("wr", "其他科錯題", "共 " + wb.tot + " 題", "#/s/" + top + "/wr", 30, 1, top);
+    } else if (phase === "C") {
+      // 收尾：不做新題
+      vocab0(20);
+      add("wr", "錯題重看", wb.tot ? "共 " + wb.tot + " 題，" + subj(top).name + " 最多" : "看易錯框與畫線", wb.tot ? "#/s/" + top + "/wr" : "#/", 60, 0, top || "");
+      add("hl", "課文易錯框與畫線", "只看不做新題", "#/s/con", 40, 1, "con");
+    } else if (phase !== "X") {
+      // 地特後：專業科目輪讀＋申論骨架（之後再細排）
+      var sid = { 1: "con", 2: "adm", 3: "pol", 4: "jur", 5: "alaw", 6: "chn", 0: "" }[dow];
+      vocab0(phase === 3 ? 10 : 20);
+      if (sid) {
+        if (phase === 3) add("rev", subj(sid).name + " 重複複習", "只看錯題、法條、時事", "#/s/" + sid, 60, 0, sid);
+        else readSec(sid, 40, 25);
+        if (phase === 2 && (sid === "pol" || sid === "adm")) add("es", subj(sid).name + " 申論 1 題", "寫骨架或默寫架構", "#/s/" + sid, 40, 1, sid);
+      } else add("wk", "週日總複習", "挑本週最弱的一科回頭看", "#/", 60, 0, "");
+      if (wb.tot) add("wr", "錯題複習", "共 " + wb.tot + " 題", "#/s/" + top + "/wr", 20, 1, top);
     }
     return { date: today, phase: phase, tasks: T };
   }
-  function planDone(date, T) { var p = S.plan[date] || {}; return T.length && T.every(function (t) { return p[t.id]; }); }
-  function streak(todayDone, today) {
+  function streak(todayDone) {
     var n = todayDone ? 1 : 0, d = new Date();
     for (var i = 1; i < 400; i++) {
       d.setDate(d.getDate() - 1);
@@ -179,26 +209,136 @@
     }
     return n;
   }
+
+  // ---------- 計時（類似 ATracker） ----------
+  // S.run（只存本機）：正在計時的任務 {k, t, sid, min, d, href, acc:已累計毫秒, t0:這段開始時間, away:離開時間, hb:心跳}
+  // S.tl（會同步）：計時紀錄 {id: {d:日期, k:任務id, t:名稱, sid, m:分鐘, ts, del?}}
+  var COL = { chn: "#d0412f", con: "#3b55c4", jur: "#7a4cc4", eng: "#e08a1e", adm: "#1e8558", alaw: "#0d8aa8", pol: "#b0458a", pub: "#6a7284", "": "#9aa1b2" };
+  function fmtM(m) { m = Math.round(m); return m >= 60 ? Math.floor(m / 60) + "h" + (m % 60 ? m % 60 + "m" : "") : m + "m"; }
+  function runMs() { var r = S.run; return r ? r.acc + (r.t0 ? Date.now() - r.t0 : 0) : 0; }
+  function mmss(ms) { var s = Math.floor(ms / 1000); return Math.floor(s / 60) + ":" + ("0" + s % 60).slice(-2); }
+  function dayMin(d) { var m = 0; Object.keys(S.tl).forEach(function (i) { var x = S.tl[i]; if (!x.del && x.d === d) m += x.m; }); return m; }
+  function taskMin(d, k) { var m = 0; Object.keys(S.tl).forEach(function (i) { var x = S.tl[i]; if (!x.del && x.d === d && x.k === k) m += x.m; }); return m; }
+  function tStart(t, date) {
+    if (S.run && S.run.k === t.id && S.run.d === date) { if (!S.run.t0) tResume(); return; }
+    if (S.run) tStop(true);
+    S.run = { k: t.id, t: t.t, sid: t.sid || "", min: t.min, d: date, href: t.href, ext: !!t.ext, acc: 0, t0: Date.now(), hb: Date.now() };
+    save(); runBar();
+  }
+  function tPause() { var r = S.run; if (!r || !r.t0) return; r.acc += Date.now() - r.t0; r.t0 = null; r.p = 1; save(); runBar(); }
+  function tResume() { var r = S.run; if (!r) return; r.t0 = Date.now(); r.p = 0; r.away = null; save(); runBar(); }
+  function tStop(quiet) {
+    var r = S.run; if (!r) return;
+    var m = Math.round(runMs() / 6e4);
+    S.run = null;
+    if (m >= 1) {
+      var id = "t" + Date.now().toString(36);
+      S.tl[id] = { d: r.d, k: r.k, t: r.t, sid: r.sid, m: m, ts: Date.now() };
+      var pl = S.plan[r.d] = S.plan[r.d] || {};
+      if (!pl[r.k] && taskMin(r.d, r.k) >= r.min * 0.8) { pl[r.k] = Date.now(); pl._t = Date.now(); }
+    }
+    save(); runBar();
+    if (!quiet) { toast(m >= 1 ? "記下 " + m + " 分鐘" : "不到 1 分鐘，不記"); if (!location.hash || location.hash === "#/") route(); }
+  }
+  // 離開畫面（切程式、關螢幕、被叫走）就先停，回來再問要不要算進去
+  function tAway() { var r = S.run; if (!r || !r.t0) return; r.acc += Date.now() - r.t0; r.t0 = null; r.away = Date.now(); save(); }
+  function tBack() {
+    var r = S.run; if (!r || !r.away) return;
+    var gap = Date.now() - r.away;
+    if (gap < 9e4) { r.acc += gap; r.away = null; r.t0 = Date.now(); save(); }
+    runBar();
+  }
+  var rbar = null, rtick = null;
+  function runBar() {
+    var r = S.run;
+    if (!r) { if (rbar) { rbar.remove(); rbar = null; } clearInterval(rtick); rtick = null; document.body.classList.remove("has-run"); return; }
+    if (!rbar) { rbar = h("div", { class: "runbar", role: "status" }); document.body.appendChild(rbar); document.body.classList.add("has-run"); }
+    rbar.style.setProperty("--c", COL[r.sid] || COL[""]);
+    if (r.away) {
+      var g = Math.round((Date.now() - r.away) / 6e4);
+      rbar.replaceChildren(h("div", { class: "rb-q", text: (r.ext ? "剛剛 " + g + " 分鐘都在背單字嗎？" : "剛剛離開 " + g + " 分鐘，要算進去嗎？") }),
+        h("button", { class: "rb-b", text: "算進去", onclick: function () { r.acc += Date.now() - r.away; tResume(); } }),
+        h("button", { class: "rb-b soft", text: "不算", onclick: tResume }));
+      return;
+    }
+    var tm = h("span", { class: "rb-t" });
+    function upd() { var ms = runMs(); tm.textContent = mmss(ms) + " / " + r.min + "m"; if (r.t0 && Date.now() - (r.hb || 0) > 15e3) { r.hb = Date.now(); save(); } }
+    rbar.replaceChildren(h("span", { class: "rb-dot" + (r.t0 ? " on" : "") }),
+      h("a", { class: "rb-n", href: r.href, target: r.ext ? "_blank" : null, rel: r.ext ? "noopener" : null, text: r.t }), tm,
+      h("button", { class: "rb-b soft", "aria-label": r.t0 ? "暫停" : "繼續", text: r.t0 ? "❚❚" : "▶", onclick: function () { if (S.run.t0) tPause(); else tResume(); } }),
+      h("button", { class: "rb-b", "aria-label": "結束並記錄", text: "■", onclick: function () { tStop(); } }));
+    upd(); clearInterval(rtick); rtick = setInterval(upd, 1000);
+  }
+  document.addEventListener("visibilitychange", function () { if (document.hidden) tAway(); else tBack(); });
+  window.addEventListener("pagehide", tAway);
+  function runInit() {
+    var r = S.run; if (!r) return;
+    // 上次計時中被關掉：從最後一次心跳算起當作離開
+    if (r.t0) { var hb = Math.max(r.hb || r.t0, r.t0); r.acc += hb - r.t0; r.t0 = null; r.away = hb; save(); }
+    if (r.away) tBack(); else runBar();
+  }
+
   function planCard() {
     var P = planTasks(), pl = S.plan[P.date] = S.plan[P.date] || {};
-    var done = P.tasks.filter(function (t) { return pl[t.id]; }).length, all = done === P.tasks.length;
-    if (all && !pl._ok) { pl._ok = Date.now(); save(); } else if (!all && pl._ok) { delete pl._ok; save(); }
+    var base = P.tasks.filter(function (t) { return !t.tier; }), extra = P.tasks.filter(function (t) { return t.tier; });
+    var bd = base.filter(function (t) { return pl[t.id]; }).length, ok = base.length && bd === base.length;
+    if (ok && !pl._ok) { pl._ok = Date.now(); save(); } else if (!ok && pl._ok) { delete pl._ok; save(); }
     var cds = EXAMS.map(function (e) { var n = daysTo(e.d); return n >= 0 ? h("div", { class: "cd" }, h("div", { class: "cdn", text: String(n) }), h("div", { class: "cdl", text: "天・" + e.name })) : null; });
-    var list = P.tasks.map(function (t) {
-      var on = !!pl[t.id];
-      var box = h("button", { class: "tk-box" + (on ? " on" : ""), "aria-label": "完成", text: on ? "✓" : "", onclick: function () {
+    function row(t) {
+      var on = !!pl[t.id], used = taskMin(P.date, t.id), run = S.run && S.run.k === t.id && S.run.d === P.date;
+      var box = h("button", { class: "tk-box" + (on ? " on" : ""), "aria-label": on ? "取消完成" : "完成", text: on ? "✓" : "", onclick: function () {
         if (pl[t.id]) delete pl[t.id]; else pl[t.id] = Date.now();
         pl._t = Date.now(); save(); route();
       } });
-      return h("div", { class: "tk-row" }, box,
-        h("a", { class: "tk-main", href: t.href, target: t.ext ? "_blank" : null, rel: t.ext ? "noopener" : null }, h("div", { class: "nm" + (on ? " off" : ""), text: t.t }), h("div", { class: "sub", text: t.sub })));
-    });
-    var sk = streak(all, P.date);
+      var play = h("button", { class: "tk-play" + (run ? " on" : ""), "aria-label": "開始計時", style: "--c:" + (COL[t.sid] || COL[""]), onclick: function () {
+        tStart(t, P.date);
+        if (t.ext) window.open(t.href, "_blank", "noopener"); else go(t.href);
+      } }, h("span", { text: run ? "●" : "▶" }), h("small", { text: (used ? used + "/" : "") + t.min + "m" }));
+      return h("div", { class: "tk-row", style: "--c:" + (COL[t.sid] || COL[""]) }, box,
+        h("a", { class: "tk-main", href: t.href, target: t.ext ? "_blank" : null, rel: t.ext ? "noopener" : null }, h("div", { class: "nm" + (on ? " off" : ""), text: t.t }), h("div", { class: "sub", text: t.sub })), play);
+    }
+    var sk = streak(ok), tot = dayMin(P.date);
+    var bmin = base.reduce(function (a, t) { return a + t.min; }, 0);
+    var tip = { A: "保底做完就算今天及格；有力氣再做加碼。", B: "模擬期：每天一份考卷計時寫，寫完一定要檢討。", C: "收尾：不做新題，只看錯題和易錯。", 2: "專業科目輪讀＋申論骨架。", 3: "衝刺：只重複、不練新題型。" }[P.phase];
+    if (P.phase === "X") return h("div", { class: "card plan-card" }, h("div", { class: "cds" }, cds), h("div", { class: "h2", text: "今天考試，加油！" }), h("div", { class: "small", text: "看一眼易錯框就好，不做新題。" }));
     return h("div", { class: "card plan-card" },
       h("div", { class: "cds" }, cds),
-      h("div", { class: "eyebrow", text: "今日任務　" + done + "/" + P.tasks.length + (sk ? "　連續 " + sk + " 天" : "") }),
-      list,
-      h("div", { class: "small", text: all ? "今天完成了，記得按一次雲端同步。" : P.phase === 1 ? "地特前：先單字，再共同科目選擇題。" : P.phase === 2 ? "12 月後：專業科目輪讀＋申論骨架。" : "衝刺：只重複、不練新題型。" }));
+      h("div", { class: "tk-head" }, h("span", { class: "eyebrow", text: "今日・已讀 " + fmtM(tot) }), sk ? h("span", { class: "pill blue", text: "連續 " + sk + " 天" }) : null),
+      h("div", { class: "tk-sec", text: "保底 " + bd + "/" + base.length + "・約 " + fmtM(bmin) + (ok ? "　✓ 今天及格" : "") }),
+      base.map(row),
+      extra.length ? h("div", { class: "tk-sec", text: "加碼（有力氣再做）" }) : null,
+      extra.map(row),
+      weekChart(),
+      h("div", { class: "small", text: ok ? "今天及格了，記得按一次雲端同步。" : tip }));
+  }
+  // 最近 7 天各科時數
+  function weekChart() {
+    var days = [], d = new Date(), max = 60, tot = 0;
+    for (var i = 6; i >= 0; i--) { var x = new Date(d); x.setDate(d.getDate() - i); days.push({ d: ymd(x), w: "日一二三四五六".charAt(x.getDay()), s: {}, m: 0 }); }
+    var idx = {}; days.forEach(function (x, i) { idx[x.d] = i; });
+    var bySub = {};
+    Object.keys(S.tl).forEach(function (id) {
+      var x = S.tl[id]; if (x.del || idx[x.d] == null) return;
+      var o = days[idx[x.d]]; o.s[x.sid] = (o.s[x.sid] || 0) + x.m; o.m += x.m; tot += x.m; bySub[x.sid] = (bySub[x.sid] || 0) + x.m;
+    });
+    days.forEach(function (x) { if (x.m > max) max = x.m; });
+    var cols = days.map(function (x) {
+      return h("div", { class: "wk-c" }, h("div", { class: "wk-v", text: x.m ? fmtM(x.m) : "" }),
+        h("div", { class: "wk-bar" }, Object.keys(x.s).map(function (s) { return h("div", { style: "height:" + (x.s[s] / max * 100) + "%;background:" + (COL[s] || COL[""]) }); })),
+        h("div", { class: "wk-d", text: x.w }));
+    });
+    var leg = Object.keys(bySub).sort(function (a, b) { return bySub[b] - bySub[a]; }).map(function (s) {
+      return h("span", { class: "wk-lg" }, h("i", { style: "background:" + (COL[s] || COL[""]) }), (s && subj(s) ? subj(s).name : "其他") + " " + fmtM(bySub[s]));
+    });
+    var today = ymd(new Date()), logs = Object.keys(S.tl).filter(function (id) { return !S.tl[id].del && S.tl[id].d === today; }).sort(function (a, b) { return S.tl[a].ts - S.tl[b].ts; });
+    var rows = logs.map(function (id) {
+      var x = S.tl[id], t = new Date(x.ts);
+      return h("div", { class: "wk-log" }, h("span", { text: ("0" + t.getHours()).slice(-2) + ":" + ("0" + t.getMinutes()).slice(-2) + "　" + x.t + "　" + x.m + " 分" }),
+        h("button", { class: "link", text: "刪除", onclick: function () { if (confirm("刪除這筆 " + x.m + " 分鐘的紀錄？")) { S.tl[id] = { del: 1, ts: Date.now() }; save(); route(); } } }));
+    });
+    return h("details", { class: "wk" }, h("summary", { text: "本週 " + fmtM(tot) + (tot ? "・看各科分布" : "") }),
+      h("div", { class: "wk-g" }, cols), leg.length ? h("div", { class: "wk-lgs" }, leg) : null,
+      rows.length ? h("div", { class: "wk-logs" }, h("div", { class: "small", text: "今天的紀錄" }), rows) : null);
   }
 
   // ---------- 首頁 ----------
@@ -1348,7 +1488,7 @@
     viewHome();
   }
   window.addEventListener("hashchange", route);
-  load(); applyTheme(); route();
+  load(); applyTheme(); route(); runInit();
   if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).catch(function () {});
   if (/^https?:$/.test(location.protocol)) setTimeout(function () { checkUpdate(null, true); }, 1500);
 })();
