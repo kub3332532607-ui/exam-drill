@@ -374,3 +374,16 @@ body.noscroll { overflow: hidden; }
 .rb-b { flex: none; min-width: 40px; height: 36px; border: 0; border-radius: 999px; background: var(--c); color: #fff; font: inherit; font-weight: 800; font-size: 14px; padding: 0 10px; cursor: pointer; }
 .rb-b.soft { background: var(--soft); color: var(--ink); }
 .wk-add { margin-top: 8px; } .wk-addr { display: flex; gap: 6px; margin-top: 4px; } .wk-sel { flex: 1; min-width: 0; height: 36px; font: inherit; font-size: 13px; } .wk-num { width: 64px; height: 36px; font: inherit; font-size: 14px; padding: 0 6px; }
+.runbar.mini { left: 50%; right: auto; transform: translateX(-50%); padding: 0; border: 0; background: none; box-shadow: none; gap: 0; max-width: none; opacity: 1; }
+.rb-mt { width: 58px; height: 58px; border-radius: 50%; border: 0; padding: 0; font: inherit; font-weight: 800; font-size: 13px; font-variant-numeric: tabular-nums; color: var(--ink); background: radial-gradient(circle closest-side, var(--card) 80%, transparent 82%), conic-gradient(var(--c) var(--pg, 0%), var(--soft) 0); box-shadow: 0 3px 12px rgba(0,0,0,.25); cursor: pointer; }
+.rb-mp { position: absolute; right: -6px; bottom: -4px; width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--card); background: var(--c); color: #fff; font-size: 10px; padding: 0; cursor: pointer; }
+.sc-sum { padding: 2px 0 2px 10px; border-left: 4px solid var(--c); margin: 6px 0; }
+.sc-day { display: flex; gap: 10px; padding: 8px 4px; border-top: 1px solid var(--line); }
+.sc-day.now { background: var(--soft); border-radius: 8px; }
+.sc-d { flex: none; width: 4.4em; font-weight: 700; font-size: 14px; }
+.sc-cs { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.sc-c { display: flex; align-items: baseline; gap: 6px; color: var(--ink); text-decoration: none; font-size: 14px; border-left: 3px solid var(--c); padding-left: 6px; }
+.sc-t { flex: 1; min-width: 0; }
+.sc-c.done { opacity: .5; }
+.sc-c.late { color: var(--red); font-weight: 700; }
+.sc-ic { flex: none; width: 1em; text-align: center; }

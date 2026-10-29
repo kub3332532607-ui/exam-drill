@@ -3,7 +3,7 @@
   var KS = window.KS, LET = ["A", "B", "C", "D"];
   var app = document.getElementById("app");
   // 版本號：和 sw.js 的 VER 保持一致，改程式時兩邊一起加一
-  var APP_VER = "ks-v33", APP_DATE = "2026-10-29";
+  var APP_VER = "ks-v34", APP_DATE = "2026-10-30";
 
   // ---------- 儲存 ----------
   var KEY = "ks_v1";
@@ -147,6 +147,25 @@
     KS.exams.forEach(function (e) { e.questions.forEach(function (q, i) { var st = stat(e, i + 1); if (st && st.last === "w") { m[e.subject] = (m[e.subject] || 0) + 1; tot++; } }); });
     return { m: m, tot: tot };
   }
+  // ---------- 讀章排程（data/schedule.js，以章為單位；讀完整章才算完成） ----------
+  var SC = KS.sched || { days: {}, buf: [], mult: {} };
+  function md(d) { var a = d.split("-"); return +a[1] + "/" + +a[2]; }
+  function chTicked(key) { return Object.keys(S.plan).some(function (d) { return S.plan[d] && S.plan[d]["ch:" + key]; }); }
+  function chInfo(key) {
+    var a = key.split(":"), sid = a[0], cs = chapters(sid), c = cs.filter(function (c) { return c.id === a[1]; })[0]; if (!c) return null;
+    var secs = c.sections || [], n = 0, len = 0, nx = null;
+    secs.forEach(function (x) { var r = S.pos["rd:" + sid + ":" + x.id]; if (r && r.fin) n++; else if (!nx) nx = x; len += paras(x).join("").length; });
+    return { key: key, sid: sid, c: c, no: cs.indexOf(c) + 1, n: n, tot: secs.length, done: (secs.length > 0 && n === secs.length) || chTicked(key),
+      min: Math.max(10, Math.round(len / 200 * ((SC.mult || {})[sid] || 1) / 5) * 5),
+      href: nx ? "#/rd/" + sid + "/" + c.id + "/" + nx.id : "#/c/" + sid + "/" + c.id };
+  }
+  function chMin(key) { var m = 0; Object.keys(S.tl).forEach(function (i) { var x = S.tl[i]; if (!x.del && x.k === "ch:" + key) m += x.m; }); return m; }
+  // 每章的預定日與狀態：done 已完成、late 落後、now 今天、todo 之後
+  function schedList(today) {
+    var out = [];
+    Object.keys(SC.days || {}).sort().forEach(function (d) { SC.days[d].forEach(function (k) { var ci = chInfo(k); if (ci) { ci.d = d; ci.st = ci.done ? "done" : d < today ? "late" : d === today ? "now" : "todo"; out.push(ci); } }); });
+    return out;
+  }
   function planTasks() {
     var d0 = new Date(), dow = d0.getDay(), today = ymd(d0), T = [];
     var wb = wrongBySubject(), top = Object.keys(wb.m).sort(function (a, b) { return wb.m[b] - wb.m[a]; })[0];
@@ -161,18 +180,26 @@
     }
     var phase = today < "2026-11-23" ? "A" : today < "2026-12-02" ? "B" : today < "2026-12-05" ? "C" : today === "2026-12-05" ? "X" : daysTo("2027-04-01") > 0 ? 2 : 3;
     if (phase === "A") {
-      // 地特前補強：保底＝單字＋英文＋一科讀一節＋本節題目；加碼＝第二科刷題、錯題、週六作文
-      var ROT = { 1: ["con", "alaw"], 2: ["adm", "pol"], 3: ["jur", "alaw"], 4: ["adm", "con"], 5: ["con", "jur"], 6: ["adm", "alaw"], 0: [null, "pol"] }[dow];
+      // 地特前補強：保底＝單字＋今天排的章（讀完整章才算完成，含落後章）；週日緩衝日補落後＋錯題＋國文測驗；加碼＝刷題、英文考卷、作文
+      var L = schedList(today), isBuf = (SC.buf || []).indexOf(today) >= 0 || !(SC.days || {})[today], pl0 = S.plan[today] = S.plan[today] || {}, tch = null;
       vocab0(20);
-      add("eng", "英文 10 題", "英文占法學知識與英文 20/50 題", "#/s/eng/ex", 20, 0, "eng");
-      if (ROT[0]) readSec(ROT[0], 40, 25);
-      else {
+      L.forEach(function (ci) {
+        var k = "ch:" + ci.key;
+        if (!(ci.d === today || ci.st === "late" || pl0[k])) return;
+        if (ci.done && !pl0[k]) { pl0[k] = Date.now(); pl0._t = Date.now(); save(); }
+        var late = ci.d < today;
+        if (ci.d === today && !tch) tch = ci;
+        add(k, subj(ci.sid).name + "：第 " + ci.no + " 章" + (late ? "（落後，原訂 " + md(ci.d) + "）" : ""), ci.c.title + "・已讀 " + ci.n + "/" + ci.tot + " 節", ci.href, ci.min, late && !isBuf ? 1 : 0, ci.sid);
+      });
+      if (isBuf) {
         add("wk", "錯題總複習", wb.tot ? "本週錯題回頭看，" + subj(top).name + " 最多" : "挑本週最弱的一科回頭看", wb.tot ? "#/s/" + top + "/wr" : "#/", 40, 0, top || "");
         add("chn", "國文測驗 15 題", "字音字形、成語、閱讀", "#/s/chn/ex", 25, 0, "chn");
       }
-      add("q2", subj(ROT[1]).name + "：刷 30 題", ROT[1] === "alaw" ? "行政法課文還沒寫，先以題目熟悉考點" : "做完看解析，錯的加訂正", "#/s/" + ROT[1] + "/ex", 45, 1, ROT[1]);
-      if (dow === 6) add("es", "國文作文一篇", "限時 50 分鐘，寫完拍照或打字存下", "#/s/chn", 50, 1, "chn");
-      if (wb.tot && ROT[0]) add("wr", "錯題複習", "共 " + wb.tot + " 題，" + subj(top).name + " 最多", "#/s/" + top + "/wr", 20, 1, top);
+      if (tch) add("q2", "今天章節的題目", subj(tch.sid).name + "第 " + tch.no + " 章考古題，做完看解析", "#/c/" + tch.sid + "/" + tch.c.id, 30, 1, tch.sid);
+      add("eng", "英文考卷一份", "單字掌握約 9 成的那份，20–30 題，寫完看本題單字", "#/s/eng/ex", 30, 1, "eng");
+      if (dow === 6) add("es", "國文作文一篇", "限時 60 分鐘，寫完拍照或打字存下", "#/s/chn", 60, 1, "chn");
+      if (dow === 3) add("es", "作文大綱＋第一段", "挑一題歷屆題目，20 分鐘", "#/s/chn", 20, 1, "chn");
+      if (wb.tot && !isBuf) add("wr", "錯題複習", "共 " + wb.tot + " 題，" + subj(top).name + " 最多", "#/s/" + top + "/wr", 20, 1, top);
     } else if (phase === "B") {
       // 模擬期：每天一份考卷計時寫，寫完檢討
       var M = [["con", "法學知識與英文", "憲法、法緒、英文各一份歷屆卷", 60], ["adm", "行政學", "一份地特四等或普考", 60], ["alaw", "行政法", "一份地特四等或普考", 60], ["pol", "政治學", "一份歷屆卷", 60], ["chn", "國文", "測驗＋作文", 90]];
@@ -182,6 +209,7 @@
       add("rv", "檢討今天的錯題", "看解析、寫訂正", "#/s/" + m[0] + "/wr", 40, 0, m[0]);
       add("eng", "英文 10 題", "保持手感", "#/s/eng/ex", 20, 1, "eng");
       if (wb.tot) add("wr", "其他科錯題", "共 " + wb.tot + " 題", "#/s/" + top + "/wr", 30, 1, top);
+      schedList(today).forEach(function (ci) { if (ci.st === "late") add("ch:" + ci.key, "補讀：" + subj(ci.sid).name + "第 " + ci.no + " 章", ci.c.title + "・已讀 " + ci.n + "/" + ci.tot + " 節", ci.href, ci.min, 1, ci.sid); });
     } else if (phase === "C") {
       // 收尾：不做新題
       vocab0(20);
@@ -235,7 +263,7 @@
       var id = "t" + Date.now().toString(36);
       S.tl[id] = { d: r.d, k: r.k, t: r.t, sid: r.sid, m: m, ts: Date.now() };
       var pl = S.plan[r.d] = S.plan[r.d] || {};
-      if (!pl[r.k] && taskMin(r.d, r.k) >= r.min * 0.8) { pl[r.k] = Date.now(); pl._t = Date.now(); }
+      if (!pl[r.k] && r.k.indexOf("ch:") && taskMin(r.d, r.k) >= r.min * 0.8) { pl[r.k] = Date.now(); pl._t = Date.now(); }
     }
     save(); runBar();
     if (!quiet) { toast(m >= 1 ? "記下 " + m + " 分鐘" : "不到 1 分鐘，不記"); if (!location.hash || location.hash === "#/") route(); }
@@ -254,6 +282,7 @@
     if (!r) { if (rbar) { rbar.remove(); rbar = null; } clearInterval(rtick); rtick = null; document.body.classList.remove("has-run"); return; }
     if (!rbar) { rbar = h("div", { class: "runbar", role: "status" }); document.body.appendChild(rbar); document.body.classList.add("has-run"); }
     rbar.style.setProperty("--c", COL[r.sid] || COL[""]);
+    rbar.classList.toggle("mini", !!(S.rbm && !r.away));
     if (r.away) {
       var g = Math.round((Date.now() - r.away) / 6e4);
       rbar.replaceChildren(h("div", { class: "rb-q", text: (r.ext ? "剛剛 " + g + " 分鐘都在背單字嗎？" : "剛剛離開 " + g + " 分鐘，要算進去嗎？") }),
@@ -266,11 +295,18 @@
       if (v == null) return; var n = parseFloat(v); if (isNaN(n) || n < 0 || n > 600) { toast("請輸入 0–600 的數字"); return; }
       r.acc = n * 6e4; if (r.t0) r.t0 = Date.now(); save(); upd();
     } });
+    if (S.rbm) {
+      var mt = h("button", { class: "rb-mt", "aria-label": "展開計時器" , onclick: function () { S.rbm = 0; save(); runBar(); } });
+      var upm = function () { var ms = runMs(); mt.textContent = mmss(ms); mt.style.setProperty("--pg", Math.min(100, ms / 600 / Math.max(1, r.min)) + "%"); if (r.t0 && Date.now() - (r.hb || 0) > 15e3) { r.hb = Date.now(); save(); } };
+      rbar.replaceChildren(mt, h("button", { class: "rb-mp", "aria-label": r.t0 ? "暫停" : "繼續", text: r.t0 ? "❚❚" : "▶", onclick: function () { if (S.run.t0) tPause(); else tResume(); } }));
+      upm(); clearInterval(rtick); rtick = setInterval(upm, 1000); return;
+    }
     function upd() { var ms = runMs(); tm.textContent = mmss(ms) + " / " + r.min + "m"; if (r.t0 && Date.now() - (r.hb || 0) > 15e3) { r.hb = Date.now(); save(); } }
     rbar.replaceChildren(h("span", { class: "rb-dot" + (r.t0 ? " on" : "") }),
       h("a", { class: "rb-n", href: r.href, target: r.ext ? "_blank" : null, rel: r.ext ? "noopener" : null, text: r.t }), tm,
       h("button", { class: "rb-b soft", "aria-label": r.t0 ? "暫停" : "繼續", text: r.t0 ? "❚❚" : "▶", onclick: function () { if (S.run.t0) tPause(); else tResume(); } }),
-      h("button", { class: "rb-b", "aria-label": "結束並記錄", text: "■", onclick: function () { tStop(); } }));
+      h("button", { class: "rb-b", "aria-label": "結束並記錄", text: "■", onclick: function () { tStop(); } }),
+      h("button", { class: "rb-b soft", "aria-label": "縮小成圓形", text: "◯", onclick: function () { S.rbm = 1; save(); runBar(); } }));
     upd(); clearInterval(rtick); rtick = setInterval(upd, 1000);
   }
   document.addEventListener("visibilitychange", function () { if (document.hidden) tAway(); else tBack(); });
@@ -313,6 +349,7 @@
       extra.length ? h("div", { class: "tk-sec", text: "加碼（有力氣再做）" }) : null,
       extra.map(row),
       weekChart(P),
+      P.phase === "A" || P.phase === "B" ? h("a", { class: "btn soft", href: "#/sch", text: "排程表・進度回報 ›" }) : null,
       h("div", { class: "small", text: ok ? "今天及格了，記得按一次雲端同步。" : tip }));
   }
   // 最近 7 天各科時數
@@ -348,7 +385,7 @@
         if (!t || isNaN(n) || n < 1 || n > 600) { toast("請輸入 1–600 分鐘"); return; }
         S.tl["t" + Date.now().toString(36)] = { d: P.date, k: t.id, t: t.t, sid: t.sid || "", m: n, ts: Date.now() };
         var pl = S.plan[P.date] = S.plan[P.date] || {};
-        if (!pl[t.id] && taskMin(P.date, t.id) >= t.min * 0.8) { pl[t.id] = Date.now(); pl._t = Date.now(); }
+        if (!pl[t.id] && t.id.indexOf("ch:") && taskMin(P.date, t.id) >= t.min * 0.8) { pl[t.id] = Date.now(); pl._t = Date.now(); }
         save(); toast("記下 " + n + " 分鐘"); route();
       } }))) : null;
     return h("details", { class: "wk" }, h("summary", { text: "本週 " + fmtM(tot) + (tot ? "・看各科分布" : "") }),
@@ -1070,14 +1107,15 @@
     t.split("**").forEach(function (x, i) { if (x) f.appendChild(i % 2 ? h("strong", { text: x }) : document.createTextNode(x)); });
     return f;
   }
-  function renderBlock(b) {
+  function renderBlock(b, fill) {
     var fig = h("figure", { class: "fig fig-" + b.kind });
     if (b.cap) fig.appendChild(h("figcaption", { text: b.cap }));
     if (b.kind === "table") {
       var tb = h("table"), thead = h("thead"), tbody = h("tbody");
+      var ix = 0;
       b.rows.forEach(function (r, i) {
         var tr = h("tr");
-        r.forEach(function (c, j) { tr.appendChild(h(i === 0 ? "th" : j === 0 ? "th" : "td", i > 0 && j === 0 ? { scope: "row" } : null, inline(c))); });
+        r.forEach(function (c, j) { var el = h(i === 0 ? "th" : j === 0 ? "th" : "td", i > 0 && j === 0 ? { scope: "row" } : null); if (fill && b.cells) fill(el, b.cells[ix]); else el.appendChild(inline(c)); ix++; tr.appendChild(el); });
         (i === 0 ? thead : tbody).appendChild(tr);
       });
       tb.appendChild(thead); tb.appendChild(tbody);
@@ -1096,8 +1134,15 @@
     }
     return fig;
   }
+  function boldOf(raw) { var plain = "", bold = []; raw.split("**").forEach(function (t, i) { if (i % 2) bold.push([plain.length, plain.length + t.length]); plain += t; }); return { plain: plain, bold: bold }; }
+  // 表格可畫線：plain＝各格文字以換行串接，cells[格]＝[起點, 長度]；格子元素帶 data-p（段落序號）與 data-po（格子起點）
   function parsePara(raw) {
-    var blk = parseBlock(raw); if (blk) { blk.plain = ""; blk.bold = []; return blk; }
+    var blk = parseBlock(raw);
+    if (blk) {
+      blk.plain = ""; blk.bold = [];
+      if (blk.kind === "table") { blk.cells = []; blk.rows.forEach(function (r) { r.forEach(function (c) { var o = boldOf(c), st = blk.plain.length; o.bold.forEach(function (x) { blk.bold.push([x[0] + st, x[1] + st]); }); blk.cells.push([st, o.plain.length]); blk.plain += o.plain + "\n"; }); }); }
+      return blk;
+    }
     var kind = "p";
     if (raw.slice(0, 3) === "## ") { kind = "h"; raw = raw.slice(3); }
     else if (raw.slice(0, 3) === "!! ") { kind = "tip"; raw = raw.slice(3); }
@@ -1136,22 +1181,27 @@
       var ps = paras(sec).map(parsePara), list = S.marks[MK] || [], pos = resolveMarks(list, ps);
       art.replaceChildren();
       ps.forEach(function (pp, i) {
-        if (pp.rows || pp.items) return art.appendChild(renderBlock(pp));
+        if (pp.items) return art.appendChild(renderBlock(pp));
         var n = pp.plain.length, b = new Array(n), m = new Array(n);
         pp.bold.forEach(function (r) { for (var k = r[0]; k < r[1]; k++) b[k] = 1; });
         list.forEach(function (mk) { var at = pos[mk.id]; if (at && at[0] === i) for (var k = at[1]; k < at[1] + mk.q.length && k < n; k++) m[k] = mk; });
-        var el = h(pp.kind === "h" ? "h3" : "p", { class: pp.kind === "tip" ? "tip" : null, "data-p": String(i), id: pp.kind === "h" ? "h" + i : null });
-        var k = 0;
-        while (k < n) {
-          var j = k; while (j < n && b[j] === b[k] && m[j] === m[k]) j++;
-          var node = document.createTextNode(pp.plain.slice(k, j));
-          if (b[k]) node = h("strong", null, node);
-          if (m[k]) {
-            var mk = m[k], end = pos[mk.id][1] + mk.q.length <= j;
-            node = h("mark", { class: "hl" + (mk.note ? " has-note" : "") + (end ? " end" : ""), "data-m": mk.id, onclick: (function (x) { return function () { openMark(x); }; })(mk) }, node);
+        function fill(el, a, z) {
+          el.setAttribute("data-p", String(i)); if (a) el.setAttribute("data-po", String(a));
+          var k = a;
+          while (k < z) {
+            var j = k; while (j < z && b[j] === b[k] && m[j] === m[k]) j++;
+            var node = document.createTextNode(pp.plain.slice(k, j));
+            if (b[k]) node = h("strong", null, node);
+            if (m[k]) {
+              var mk = m[k], end = pos[mk.id][1] + mk.q.length <= j;
+              node = h("mark", { class: "hl" + (mk.note ? " has-note" : "") + (end ? " end" : ""), "data-m": mk.id, onclick: (function (x) { return function () { openMark(x); }; })(mk) }, node);
+            }
+            el.appendChild(node); k = j;
           }
-          el.appendChild(node); k = j;
         }
+        if (pp.rows) return art.appendChild(renderBlock(pp, function (el, cell) { fill(el, cell[0], cell[0] + cell[1]); }));
+        var el = h(pp.kind === "h" ? "h3" : "p", { class: pp.kind === "tip" ? "tip" : null, id: pp.kind === "h" ? "h" + i : null });
+        fill(el, 0, n);
         art.appendChild(el);
       });
       // 文末：我的重點
@@ -1226,7 +1276,7 @@
       var lead = txt.length - txt.replace(/^\s+/, "").length; txt = txt.trim(); st += lead;
       if (!txt) return;
       clearTimeout(selTimer);
-      selPending = { p: +pa.getAttribute("data-p"), s: st, q: txt };
+      selPending = { p: +pa.getAttribute("data-p"), s: st + (+pa.getAttribute("data-po") || 0), q: txt };
       bar.hidden = false;
     }
     document.addEventListener("selectionchange", onSel);
@@ -1483,6 +1533,43 @@
     show(topbar(set.back, set.title), ctl, h("div", { class: "preview" }, pp));
   }
 
+  // ---------- 排程表與【進度回報】 ----------
+  function schedReport(today, L) {
+    var lines = ["【進度回報】" + today, "請依實際進度重排 data/schedule.js（只重新分配、不加量）。", ""], subs = {};
+    L.forEach(function (c) { (subs[c.sid] = subs[c.sid] || []).push(c); });
+    Object.keys(subs).forEach(function (sid) {
+      var cs = subs[sid];
+      lines.push("■ " + subj(sid).name + "：完成 " + cs.filter(function (c) { return c.st === "done"; }).length + "/" + cs.length + " 章");
+      cs.forEach(function (c) { if (c.st !== "todo" || c.n) lines.push("  " + c.key + " 第" + c.no + "章 預定 " + md(c.d) + "｜" + { done: "完成", late: "落後", now: "今天", todo: "未到" }[c.st] + "｜" + c.n + "/" + c.tot + " 節｜實際 " + chMin(c.key) + " 分（估 " + c.min + "）"); });
+    });
+    var w = []; for (var i = 6; i >= 0; i--) { var x = new Date(); x.setDate(x.getDate() - i); var ds = ymd(x); w.push(md(ds) + " " + dayMin(ds) + "分" + ((S.plan[ds] || {})._ok ? "✓" : "")); }
+    lines.push("", "最近 7 天：" + w.join("、"));
+    return lines.join("\n");
+  }
+  function viewSchedule() {
+    var today = ymd(new Date()), L = schedList(today), WD = "日一二三四五六", subs = {}, byDay = {};
+    var late = L.filter(function (c) { return c.st === "late"; });
+    L.forEach(function (c) { var o = subs[c.sid] = subs[c.sid] || { d: 0, t: 0, l: 0 }; o.t++; if (c.st === "done") o.d++; if (c.st === "late") o.l++; (byDay[c.d] = byDay[c.d] || []).push(c); });
+    var sum = h("div", { class: "card" }, h("div", { class: "h2", text: late.length ? "落後 " + late.length + " 章" : "沒有落後 👍" }),
+      Object.keys(subs).map(function (sid) { var o = subs[sid]; return h("div", { class: "sc-sum", style: "--c:" + (COL[sid] || COL[""]) }, h("b", { text: subj(sid).name }), h("span", { text: "　完成 " + o.d + "/" + o.t + " 章" + (o.l ? "・落後 " + o.l : "") })); }),
+      h("div", { class: "small", text: "讀完一章的每一節（捲到節末）就算完成。小落後先在週日緩衝日補；連續落後再按下面的按鈕，貼給 Claude 重排。" }),
+      h("button", { class: "btn", text: "複製【進度回報】", onclick: function () { copyText(schedReport(today, L)); } }));
+    var list = h("div", { class: "card" }), p0 = (SC.from || today).split("-"), d1 = SC.to || today;
+    for (var d = new Date(+p0[0], +p0[1] - 1, +p0[2]); ymd(d) <= d1; d.setDate(d.getDate() + 1)) {
+      var ds = ymd(d), cs = byDay[ds] || [], buf = (SC.buf || []).indexOf(ds) >= 0;
+      list.appendChild(h("div", { class: "sc-day" + (ds === today ? " now" : "") },
+        h("div", { class: "sc-d", text: md(ds) + " " + WD.charAt(d.getDay()) }),
+        h("div", { class: "sc-cs" }, buf && !cs.length ? h("span", { class: "small", text: "緩衝日：補落後＋錯題＋國文測驗" }) : null,
+          cs.map(function (c) {
+            return h("a", { class: "sc-c " + c.st, href: c.href, style: "--c:" + (COL[c.sid] || COL[""]) },
+              h("span", { class: "sc-ic", text: { done: "✓", late: "!", now: "▶", todo: "·" }[c.st] }),
+              h("span", { class: "sc-t", text: subj(c.sid).name + " " + c.no + "　" + c.c.title }),
+              h("span", { class: "small", text: c.n + "/" + c.tot }));
+          }))));
+    }
+    show(topbar("#/", "排程表"), sum, list);
+  }
+
   // ---------- 路由 ----------
   function route() {
     var p = (location.hash || "#/").replace(/^#\/?/, "").split("/").map(decodeURIComponent);
@@ -1498,6 +1585,7 @@
       case "es": if (essay(p[1])) return viewEssay(p[1]); break;
       case "rd": if (subj(p[1]) && section(p[1], p[2], p[3])) return viewRead(p[1], p[2], p[3]); break;
       case "rep": return viewReport();
+      case "sch": return viewSchedule();
       case "print": if (getSet(p[1])) return viewPrint(p[1], p[2]); break;
     }
     viewHome();
