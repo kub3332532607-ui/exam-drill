@@ -3,7 +3,7 @@
   var KS = window.KS, LET = ["A", "B", "C", "D"];
   var app = document.getElementById("app");
   // 版本號：和 sw.js 的 VER 保持一致，改程式時兩邊一起加一
-  var APP_VER = "ks-v30", APP_DATE = "2026-10-29";
+  var APP_VER = "ks-v31", APP_DATE = "2026-10-29";
 
   // ---------- 儲存 ----------
   var KEY = "ks_v1";
@@ -131,6 +131,17 @@
     }
     return null;
   }
+  // 當天要讀的節第一次排定後就固定（存在 S.plan[日期]._sec），讀完打勾也不會跳到下一節
+  function daySec(today, sid) {
+    var pl = S.plan[today] = S.plan[today] || {}, f = pl._sec && pl._sec.split(":");
+    if (f && f[0] === sid) {
+      var c = chapters(sid).filter(function (c) { return c.id === f[1]; })[0], x = c && (c.sections || []).filter(function (x) { return x.id === f[2]; })[0];
+      if (x) { var r = S.pos["rd:" + sid + ":" + x.id]; return { sid: sid, cid: c.id, x: x, pc: r && !r.fin && r.pc, fin: r && r.fin }; }
+    }
+    var ns = nextSec(sid);
+    if (ns) { pl._sec = sid + ":" + ns.cid + ":" + ns.x.id; save(); }
+    return ns;
+  }
   function wrongBySubject() {
     var m = {}, tot = 0;
     KS.exams.forEach(function (e) { e.questions.forEach(function (q, i) { var st = stat(e, i + 1); if (st && st.last === "w") { m[e.subject] = (m[e.subject] || 0) + 1; tot++; } }); });
@@ -145,9 +156,9 @@
     T.push({ id: "voc", t: phase === 3 ? "單字 10 分鐘" : "單字 20 分鐘", sub: "先背考卷單字，再寫那份題", href: VOCAB, ext: true });
     if (phase === 1) T.push({ id: "eng", t: "英文題 10 題", sub: "英文占 20/50 題", href: "#/s/eng/ex" });
     if (sid) {
-      var s = subj(sid), ns = nextSec(sid);
+      var s = subj(sid), ns = daySec(today, sid);
       if (phase === 3) T.push({ id: "rev", t: s.name + " 重複複習", sub: "只看錯題、法條、時事", href: "#/s/" + sid });
-      else if (ns) T.push({ id: "rd", t: s.name + "：讀一節", sub: ns.x.title + (ns.pc ? "（讀到 " + ns.pc + "%）" : ""), href: "#/rd/" + sid + "/" + ns.cid + "/" + ns.x.id });
+      else if (ns) T.push({ id: "rd", t: s.name + "：讀一節", sub: ns.x.title + (ns.fin ? "（已讀完）" : ns.pc ? "（讀到 " + ns.pc + "%）" : ""), href: "#/rd/" + sid + "/" + ns.cid + "/" + ns.x.id });
       else T.push({ id: "rd", t: s.name + "：課文已讀完一輪", sub: "改做考卷題", href: "#/s/" + sid + "/ex" });
       if (phase !== 3) T.push({ id: "qs", t: s.name + " 選擇題 15 題", sub: "做完看解析", href: "#/s/" + sid + "/ex" });
       if (phase === 2 && (sid === "pol" || sid === "adm" || sid === "pub")) T.push({ id: "es", t: s.name + " 申論 1 題", sub: "寫骨架或默寫架構", href: "#/s/" + sid });
@@ -717,7 +728,7 @@
       card.appendChild(h("div", { style: "margin-top:14px" }, h("span", { class: "verdict " + (ok(q, pk) ? "ok" : "no"), text: ok(q, pk) ? "答對了" : "答錯，正解是 " + ansText(q) })));
       if (q.note) card.appendChild(h("div", { class: "small", style: "margin-top:6px", text: "考選部更正：" + q.note }));
       if (q.x) card.appendChild(h("div", { class: "small xexp", style: "margin-top:6px;white-space:pre-line", text: "解析：" + q.x }));
-      card.appendChild(vocabBox(it));
+      var vb = vocabBox(it); if (vb) card.appendChild(vb);
       card.appendChild(h("p", null, h("a", { class: "link-out", href: search(q), target: "_blank", rel: "noopener", text: "到阿摩看考生詳解 ↗" })));
       card.appendChild(noteBox(it));
     }
