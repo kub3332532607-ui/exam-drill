@@ -3,7 +3,7 @@
   var KS = window.KS, LET = ["A", "B", "C", "D"];
   var app = document.getElementById("app");
   // 版本號：和 sw.js 的 VER 保持一致，改程式時兩邊一起加一
-  var APP_VER = "ks-v32", APP_DATE = "2026-10-29";
+  var APP_VER = "ks-v33", APP_DATE = "2026-10-29";
 
   // ---------- 儲存 ----------
   var KEY = "ks_v1";
@@ -261,7 +261,11 @@
         h("button", { class: "rb-b soft", text: "不算", onclick: tResume }));
       return;
     }
-    var tm = h("span", { class: "rb-t" });
+    var tm = h("button", { class: "rb-t", "aria-label": "修改時間", onclick: function () {
+      var v = prompt("已經讀了幾分鐘？（直接改成這個數字）", String(Math.round(runMs() / 6e4)));
+      if (v == null) return; var n = parseFloat(v); if (isNaN(n) || n < 0 || n > 600) { toast("請輸入 0–600 的數字"); return; }
+      r.acc = n * 6e4; if (r.t0) r.t0 = Date.now(); save(); upd();
+    } });
     function upd() { var ms = runMs(); tm.textContent = mmss(ms) + " / " + r.min + "m"; if (r.t0 && Date.now() - (r.hb || 0) > 15e3) { r.hb = Date.now(); save(); } }
     rbar.replaceChildren(h("span", { class: "rb-dot" + (r.t0 ? " on" : "") }),
       h("a", { class: "rb-n", href: r.href, target: r.ext ? "_blank" : null, rel: r.ext ? "noopener" : null, text: r.t }), tm,
@@ -308,11 +312,11 @@
       base.map(row),
       extra.length ? h("div", { class: "tk-sec", text: "加碼（有力氣再做）" }) : null,
       extra.map(row),
-      weekChart(),
+      weekChart(P),
       h("div", { class: "small", text: ok ? "今天及格了，記得按一次雲端同步。" : tip }));
   }
   // 最近 7 天各科時數
-  function weekChart() {
+  function weekChart(P) {
     var days = [], d = new Date(), max = 60, tot = 0;
     for (var i = 6; i >= 0; i--) { var x = new Date(d); x.setDate(d.getDate() - i); days.push({ d: ymd(x), w: "日一二三四五六".charAt(x.getDay()), s: {}, m: 0 }); }
     var idx = {}; days.forEach(function (x, i) { idx[x.d] = i; });
@@ -336,9 +340,20 @@
       return h("div", { class: "wk-log" }, h("span", { text: ("0" + t.getHours()).slice(-2) + ":" + ("0" + t.getMinutes()).slice(-2) + "　" + x.t + "　" + x.m + " 分" }),
         h("button", { class: "link", text: "刪除", onclick: function () { if (confirm("刪除這筆 " + x.m + " 分鐘的紀錄？")) { S.tl[id] = { del: 1, ts: Date.now() }; save(); route(); } } }));
     });
+    var sel = h("select", { class: "wk-sel", "aria-label": "任務" }, (P ? P.tasks : []).map(function (t, i) { return h("option", { value: String(i), text: t.t }); }));
+    var num = h("input", { class: "wk-num", type: "number", inputmode: "numeric", min: "1", max: "600", placeholder: "分鐘" });
+    var add = P && P.tasks.length ? h("div", { class: "wk-add" }, h("div", { class: "small", text: "手動補記（忘了按計時）" }), h("div", { class: "wk-addr" }, sel, num,
+      h("button", { class: "rb-b", text: "加入", onclick: function () {
+        var n = Math.round(parseFloat(num.value)), t = P.tasks[+sel.value];
+        if (!t || isNaN(n) || n < 1 || n > 600) { toast("請輸入 1–600 分鐘"); return; }
+        S.tl["t" + Date.now().toString(36)] = { d: P.date, k: t.id, t: t.t, sid: t.sid || "", m: n, ts: Date.now() };
+        var pl = S.plan[P.date] = S.plan[P.date] || {};
+        if (!pl[t.id] && taskMin(P.date, t.id) >= t.min * 0.8) { pl[t.id] = Date.now(); pl._t = Date.now(); }
+        save(); toast("記下 " + n + " 分鐘"); route();
+      } }))) : null;
     return h("details", { class: "wk" }, h("summary", { text: "本週 " + fmtM(tot) + (tot ? "・看各科分布" : "") }),
       h("div", { class: "wk-g" }, cols), leg.length ? h("div", { class: "wk-lgs" }, leg) : null,
-      rows.length ? h("div", { class: "wk-logs" }, h("div", { class: "small", text: "今天的紀錄" }), rows) : null);
+      add, rows.length ? h("div", { class: "wk-logs" }, h("div", { class: "small", text: "今天的紀錄" }), rows) : null);
   }
 
   // ---------- 首頁 ----------
