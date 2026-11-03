@@ -3,7 +3,7 @@
   var KS = window.KS, LET = ["A", "B", "C", "D"];
   var app = document.getElementById("app");
   // 版本號：和 sw.js 的 VER 保持一致，改程式時兩邊一起加一
-  var APP_VER = "ks-v36", APP_DATE = "2026-11-03";
+  var APP_VER = "ks-v37", APP_DATE = "2026-11-03";
 
   // ---------- 儲存 ----------
   var KEY = "ks_v1";
@@ -652,7 +652,7 @@
   // S.qm[容器] = [{id,f,o,q,ts}]：容器是題目 id「考卷#題」或短文 id「考卷@起始題號」；
   //   f：q 題幹、o0–o3 選項、g 短文、n 我的訂正；o 是該段文字裡的起點，q 是原句（文字改了以原句重新找位置）。
   // S.qx[題目 id] = {o:[被劃掉的選項序號], ts}（刪去法）。兩者都會雲端同步，刪除的線記在 S.del。
-  var qmode = false, qshow = {};
+  var qmode = false, qshow = {}, curQ = null;
   function pkey(it) { return it.q.g ? it.e.id + "@" + it.q.g : null; }
   function qxOf(k) { return (S.qx[k] && S.qx[k].o) || []; }
   function hasQm(it) {
@@ -702,18 +702,31 @@
   }
   function refreshFrom(el) { for (var e = el; e; e = e.parentElement) if (e._rf) return e._rf(); }
   var qbar = null, qsel = null, qtimer = null;
-  function qBar(btns) {
-    if (!qbar) { qbar = h("div", { class: "selbar" }); document.body.appendChild(qbar); }
+  var qAnchor = null, coarse = window.matchMedia && matchMedia("(pointer: coarse)").matches;
+  // 浮動工具列：貼著選取的字出現（手機放在字下方，避開系統的複製選單；電腦放在字上方）
+  function qBar(btns, rect) {
+    if (!qbar) { qbar = h("div", { class: "selbar qfloat" }); document.body.appendChild(qbar); }
     qbar.replaceChildren.apply(qbar, btns.map(function (b) {
       return h("button", { class: "btn" + (b[2] ? " soft" : ""), text: b[0], onpointerdown: function (ev) { ev.preventDefault(); }, onclick: b[1] });
     }));
-    qbar.hidden = false;
+    qbar.hidden = false; qAnchor = rect || qAnchor; qPlace();
   }
+  function qPlace() {
+    if (!qbar || qbar.hidden || !qAnchor) return;
+    var r = typeof qAnchor === "function" ? qAnchor() : qAnchor; if (!r) return;
+    var w = qbar.offsetWidth, hh = qbar.offsetHeight, vw = document.documentElement.clientWidth;
+    var left = Math.max(8, Math.min(vw - w - 8, r.left + r.width / 2 - w / 2));
+    var top = coarse ? r.bottom + 14 : r.top - hh - 8;
+    if (top < 8) top = r.bottom + 10;
+    if (top + hh > innerHeight - 8) top = Math.max(8, r.top - hh - 8);
+    qbar.style.left = left + "px"; qbar.style.top = top + "px";
+  }
+  window.addEventListener("scroll", function () { if (qbar && !qbar.hidden) { if (qsel && qsel.erase) qHide(); else qPlace(); } }, { passive: true });
   function qHide() { if (qbar) qbar.hidden = true; qsel = null; }
   function qAdd() {
     var s = qsel; qHide(); if (!s) return;
     (S.qm[s.c] = S.qm[s.c] || []).push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), f: s.f, o: s.o, q: s.q, ts: Date.now() });
-    save();
+    save(); if (curQ) qshow[curQ] = true;
     var w = window.getSelection(); if (w) w.removeAllRanges();
     refreshFrom(s.el);
   }
@@ -737,7 +750,7 @@
     if (!txt) return;
     clearTimeout(qtimer);
     qsel = { el: el, c: el.getAttribute("data-mc"), f: el.getAttribute("data-mf"), o: st, q: txt };
-    qBar([[el.getAttribute("data-mf") === "n" ? "畫重點" : "畫線", qAdd]]);
+    qBar([[el.getAttribute("data-mf") === "n" ? "畫重點" : "畫線", qAdd]], function () { var w2 = window.getSelection(); return w2 && w2.rangeCount ? w2.getRangeAt(0).getBoundingClientRect() : null; });
   });
   // 點已畫的線：可以擦掉（只在可畫線的區域）
   document.addEventListener("click", function (ev) {
@@ -748,8 +761,31 @@
     ev.preventDefault(); ev.stopPropagation();
     var c = el.getAttribute("data-mc"), id = mk.getAttribute("data-id");
     qsel = { erase: true };
-    qBar([["擦掉這條線", function () { qErase(el, c, id); }], ["取消", qHide, 1]]);
+    var mr = mk.getBoundingClientRect();
+    qBar([["擦掉這條線", function () { qErase(el, c, id); }], ["取消", qHide, 1]], mr);
   }, true);
+
+  // 快捷鍵（電腦）：選字後 Enter 畫線；1–4 劃掉／恢復選項；作答後 Enter 或 → 下一題。輸入文字時不攔截。
+  document.addEventListener("keydown", function (ev) {
+    if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+    var t = ev.target, tag = t && t.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || (t && t.isContentEditable)) return;
+    if (location.hash.indexOf("#/p/") !== 0 || document.querySelector(".fullov,.fdlg")) return;
+    if (ev.key === "Enter" && qsel && qsel.q && !qsel.erase) { ev.preventDefault(); qAdd(); return; }
+    if (/^[1-4]$/.test(ev.key)) {
+      var xs = document.querySelectorAll(".opts .opt .ox, .opts .opt.mk .L"); var el = xs[+ev.key - 1];
+      if (el) { ev.preventDefault(); el.click(); }
+      return;
+    }
+    if (ev.key === "Enter" || ev.key === "ArrowRight") {
+      if (tag === "BUTTON" || tag === "A") return;
+      var nb = [].filter.call(document.querySelectorAll(".card .btns .btn"), function (b) { return b.textContent !== "上一題" && !b.disabled; })[0];
+      if (nb && document.querySelector(".verdict")) { ev.preventDefault(); nb.click(); }
+    }
+  });
+  document.addEventListener("mouseup", function () {
+    if (!coarse && S.read && S.read.qauto && qsel && qsel.q && !qsel.erase) setTimeout(function () { if (qsel && qsel.q && !qsel.erase) qAdd(); }, 30);
+  });
 
   // 選項：劃記模式時不是按鈕（點了不會作答），點字母可以劃掉選項
   function optEl(it, i, cls, fn, mode, show) {
@@ -762,7 +798,8 @@
     }
     // 作答後不是按鈕：可以點選項裡的字查單字
     if (!fn) return h("div", { class: cls + " done" }, h("span", { class: "L", text: LET[i] }), t);
-    return h("button", { class: cls, onclick: fn }, h("span", { class: "L", text: LET[i] }), t);
+    var ox = h("span", { class: "ox", role: "button", tabindex: "-1", "aria-label": (qxOf(k).indexOf(i) >= 0 ? "恢復選項 " : "劃掉選項 ") + LET[i], text: qxOf(k).indexOf(i) >= 0 && show ? "↺" : "✕", onclick: function (ev) { ev.stopPropagation(); ev.preventDefault(); toggleX(k, i); qshow[k] = true; refreshFrom(ox); } });
+    return h("button", { class: cls + " hasx", onclick: fn }, h("span", { class: "L", text: LET[i] }), t, ox);
   }
   // 短文：手機上放在可捲動的框裡（題目留在下方），克漏字自動捲到目前的空格；「全文」可展開
   var psgTop = {}, psgFull = false;
@@ -784,7 +821,7 @@
     return d;
   }
   function modeBtn(on, fn) {
-    return h("button", { class: "chip qm-btn", "aria-pressed": String(on), text: on ? "✏️ 劃記中" : "✏️ 劃記", onclick: fn });
+    return h("button", { class: "chip qm-btn", "aria-pressed": String(on), text: on ? "✏️ 選項劃記中" : "✏️ 選項劃記", onclick: fn });
   }
 
   // ---------- 英文單字（data/vocab.js 由單字程式匯出，第一次用到英文題才載入） ----------
@@ -953,6 +990,7 @@
     }
     var pk = picked[k];
     // 上次的劃記：重寫時預設隱藏，作答後、開劃記或點「顯示」才出現
+    curQ = k;
     var vis = qmode || pk != null || !!qshow[k], old = hasQm(it);
     var opts = h("div", { class: "opts" });
     q.o.forEach(function (_, i) {
@@ -960,13 +998,14 @@
       opts.appendChild(optEl(it, i, cls, pk == null ? function () { picked[k] = i; record(it.e, it.n, ok(q, i)); save(); viewPractice(key, n); } : null, qmode, vis));
     });
     var tools = h("div", { class: "qtools" }, modeBtn(qmode, function () { qmode = !qmode; qHide(); viewPractice(key, n); }),
-      !vis && old ? h("button", { class: "link", text: "顯示上次劃記（" + old + "）", onclick: function () { qshow[k] = true; viewPractice(key, n); } }) : null);
+      !vis && old ? h("button", { class: "link", text: "顯示上次劃記（" + old + "）", onclick: function () { qshow[k] = true; viewPractice(key, n); } }) : null,
+      coarse ? null : h("button", { class: "link", "aria-pressed": String(!!S.read.qauto), text: "選字後自動畫線：" + (S.read.qauto ? "開" : "關"), onclick: function () { S.read.qauto = S.read.qauto ? 0 : 1; save(); viewPractice(key, n); } }));
     var eng = it.e.subject === "eng";
     var card = h("div", { class: "card" + (eng ? " eng-lk" : ""), "data-src": eng ? qLabel(it) : null },
       h("div", { class: "qno" }, h("span", { text: n + " / " + set.items.length }), h("span", { text: it.e.short + " 第 " + qno(it) + " 題" }), qsBtn(n, key)),
       tools,
-      qmode ? h("div", { class: "small qm-hint", text: "長按選字畫線，點畫過的線可擦掉；點選項字母可劃掉選項。作答前先關掉劃記。" }) : null,
-      psgEl(it, true, qmode, vis, pk != null), q.q ? mkText("div", "qtext", q.q, k, "q", qmode, vis) : null, opts);
+      h("div", { class: "small qm-hint", text: qmode ? "選項劃記中：選字畫線，點字母可劃掉選項。作答前先關掉。" : coarse ? "選取題目的字就會跳出「畫線」；選項右側 ✕ 可劃掉。" : "選取題目的字會跳出「畫線」(按 Enter 也行)；按 1–4 或點 ✕ 劃掉選項；作答後按 Enter 下一題。" }),
+      psgEl(it, true, true, vis, pk != null), q.q ? mkText("div", "qtext", q.q, k, "q", true, vis) : null, opts);
     card._rf = function () { viewPractice(key, n); };
     if (pk != null) {
       card.appendChild(h("div", { style: "margin-top:14px" }, h("span", { class: "verdict " + (ok(q, pk) ? "ok" : "no"), text: ok(q, pk) ? "答對了" : "答錯，正解是 " + ansText(q) })));
@@ -1231,6 +1270,67 @@
     return pos;
   }
   function clip(t, n) { return t.length > n ? t.slice(0, n) + "…" : t; }
+  // ---------- 朗讀（瀏覽器內建語音，免費；Edge 的「Natural」中文語音最自然） ----------
+  // 一段一段讀、讀到的段落會標出來；按暫停／上一段／下一段／調速度。設定（速度、聲音）只存本機。
+  var TT = { on: false, i: 0, art: null, utt: null, gen: 0 };
+  function ttsVoices() {
+    var v = (window.speechSynthesis && speechSynthesis.getVoices()) || [];
+    var zh = v.filter(function (x) { return /^zh/i.test(x.lang) || /Chinese|中文|國語|臺灣|台灣/.test(x.name); });
+    function sc(x) { return (/Natural|Online/.test(x.name) ? 4 : 0) + (/TW|臺灣|台灣|Taiwan/i.test(x.name + x.lang) ? 2 : 0) + (/Google/.test(x.name) ? 1 : 0); }
+    return zh.sort(function (a, b) { return sc(b) - sc(a); });
+  }
+  function ttsBlocks(art) {
+    return [].map.call(art.children, function (el) {
+      var t = el.tagName === "FIGURE" ? (/fig-table/.test(el.className) ? ((el.querySelector("figcaption") || {}).textContent ? "表格：" + el.querySelector("figcaption").textContent : "") : el.textContent) : el.textContent;
+      return { el: el, t: (t || "").replace(/\s+/g, " ").trim() };
+    });
+  }
+  function ttsChunks(t) {
+    var out = [], cur = "";
+    t.split(/(?<=[。！？；])/).forEach(function (x) { if ((cur + x).length > 90 && cur) { out.push(cur); cur = x; } else cur += x; });
+    if (cur) out.push(cur);
+    return out;
+  }
+  function ttsStop() {
+    TT.on = false; TT.gen++; if (window.speechSynthesis) speechSynthesis.cancel();
+    [].forEach.call(document.querySelectorAll(".tts-on"), function (e) { e.classList.remove("tts-on"); });
+    var b = document.getElementById("ttsbar"); if (b) b.remove();
+  }
+  function ttsSpeak(i) {
+    var art = TT.art; if (!art || !document.body.contains(art)) return ttsStop();
+    var bl = ttsBlocks(art); TT.gen++; var g = TT.gen;
+    while (i < bl.length && !bl[i].t) i++;
+    if (i >= bl.length) { ttsStop(); toast("讀完了"); return; }
+    TT.i = i; speechSynthesis.cancel();
+    [].forEach.call(art.querySelectorAll(".tts-on"), function (e) { e.classList.remove("tts-on"); });
+    bl[i].el.classList.add("tts-on"); bl[i].el.scrollIntoView({ block: "center", behavior: "smooth" });
+    var ch = ttsChunks(bl[i].t), k = 0, vs = ttsVoices(), want = S.read.ttsv, voice = vs.filter(function (v) { return v.name === want; })[0] || vs[0];
+    (function next() {
+      if (g !== TT.gen) return;
+      if (k >= ch.length) return ttsSpeak(i + 1);
+      var u = new SpeechSynthesisUtterance(ch[k++]); u.lang = (voice && voice.lang) || "zh-TW"; if (voice) u.voice = voice; u.rate = S.read.ttsr || 1;
+      u.onend = next; u.onerror = function (e) { if (e.error !== "interrupted" && e.error !== "canceled") next(); };
+      TT.utt = u; speechSynthesis.speak(u);
+    })();
+  }
+  function ttsBar() {
+    var old = document.getElementById("ttsbar"); if (old) old.remove();
+    var rates = [0.8, 1, 1.25, 1.5, 1.8], vs = ttsVoices();
+    var paused = false;
+    var pp = h("button", { class: "tb", text: "❚❚", "aria-label": "暫停", onclick: function () { if (paused) { speechSynthesis.resume(); paused = false; pp.textContent = "❚❚"; } else { speechSynthesis.pause(); paused = true; pp.textContent = "▶"; } } });
+    var rt = h("button", { class: "tb", text: (S.read.ttsr || 1) + "×", "aria-label": "速度", onclick: function () { var i = (rates.indexOf(S.read.ttsr || 1) + 1) % rates.length; S.read.ttsr = rates[i]; save(); rt.textContent = rates[i] + "×"; ttsSpeak(TT.i); } });
+    var vsel = vs.length > 1 ? h("select", { class: "tb tb-v", "aria-label": "聲音", onchange: function () { S.read.ttsv = vsel.value; save(); ttsSpeak(TT.i); } }, vs.map(function (v) { return h("option", { value: v.name, text: v.name.replace(/Microsoft |Google /, "").slice(0, 22), selected: v.name === S.read.ttsv ? "" : null }); })) : null;
+    var bar = h("div", { id: "ttsbar", class: "ttsbar" }, h("button", { class: "tb", text: "⏮", "aria-label": "上一段", onclick: function () { ttsSpeak(Math.max(0, TT.i - 1)); } }), pp,
+      h("button", { class: "tb", text: "⏭", "aria-label": "下一段", onclick: function () { ttsSpeak(TT.i + 1); } }), rt, vsel, h("button", { class: "tb", text: "✕", "aria-label": "停止朗讀", onclick: ttsStop }));
+    document.body.appendChild(bar);
+  }
+  function ttsStart(art, from) {
+    if (!window.speechSynthesis) { toast("這個瀏覽器不支援朗讀"); return; }
+    ttsStop(); TT.on = true; TT.art = art; ttsBar(); ttsSpeak(from || 0);
+  }
+  window.addEventListener("hashchange", function () { if (TT.on) ttsStop(); });
+  if (window.speechSynthesis) speechSynthesis.onvoiceschanged = function () { };
+
   var selPending = null, selTimer = null;
   function viewRead(sid, cid, xid) {
     var s = subj(sid), c = chapter(sid, cid), sec = section(sid, cid, xid);
@@ -1346,9 +1446,10 @@
       h("div", { class: "eyebrow", text: s.name + "・第 " + (ci + 1) + " 章 " + c.title }),
       h("h1", { class: "rd-title", text: sec.title }),
       h("div", { class: "rd-meta" }, h("span", { class: "small", text: sec.src ? "整理自：" + sec.src : "" }),
-        h("span", { class: "chips sm" }, fsChip("小", 16), fsChip("中", 18), fsChip("大", 20))),
-      h("div", { class: "small", text: "長按選字，就能畫重點或寫備註。點畫過的字可修改。" }));
+        h("span", { class: "chips sm" }, h("button", { class: "chip", text: "🔊 朗讀", onclick: function () { ttsStart(art, 0); } }), fsChip("小", 16), fsChip("中", 18), fsChip("大", 20))),
+      h("div", { class: "small", text: "長按選字，就能畫重點或寫備註。點畫過的字可修改。🔊 朗讀：連點兩下某段可從那段開始讀。" }));
     paint();
+    art.addEventListener("dblclick", function (ev) { var w = window.getSelection(); if (w) w.removeAllRanges(); var c = ev.target.closest ? ev.target.closest(".art > *") : null; if (!c) return; var i = [].indexOf.call(art.children, c); if (i >= 0) ttsStart(art, i); });
     var tail = h("div", { class: "card" }, h("div", { class: "h2", text: "讀完這節，寫考古題" }),
       h("div", { class: "muted", text: set.items.length ? "本節有 " + set.items.length + " 題選擇題。" : "本節還沒有對應的選擇題。" }));
     if (set.items.length) tail.appendChild(h("div", { class: "btns" }, pracBtns(key, set.items.length, true).concat([

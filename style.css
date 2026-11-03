@@ -457,3 +457,17 @@ body.run-wide .fullov { padding-top: calc(58px + env(safe-area-inset-top, 0)); }
 .sp mark.sp-um { background: var(--hl, #fbe7a1); color: inherit; border-radius: 3px; padding: 1px 0; }
 .sp mark.sp-um mark { background: #ffb74d; }
 .qs-b { background: none; border: 0; font: inherit; font-size: 13px; color: var(--accent); cursor: pointer; padding: 2px 6px; }
+
+/* 題目劃記：浮動工具列、選項右側 ✕ */
+.selbar.qfloat { transform: none; bottom: auto; width: auto; max-width: calc(100% - 16px); padding: 6px; gap: 6px; border-radius: 14px; }
+.selbar.qfloat .btn { flex: none; min-height: 40px; padding: 6px 16px; }
+.opt.hasx { grid-template-columns: 32px 1fr auto; }
+.opt .ox { align-self: center; width: 30px; height: 30px; line-height: 30px; text-align: center; border-radius: 50%; font-size: 13px; color: var(--ink2); opacity: .55; cursor: pointer; font-family: var(--sans); }
+.opt .ox:hover { opacity: 1; background: var(--soft); }
+.opt.x .ox { opacity: .9; }
+
+/* 朗讀 */
+.tts-on { background: var(--accent-soft); box-shadow: -4px 0 0 var(--accent); border-radius: 4px; }
+.ttsbar { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(14px + env(safe-area-inset-bottom, 0)); z-index: 9; display: flex; align-items: center; gap: 4px; background: var(--card); padding: 6px; border-radius: 999px; box-shadow: 0 6px 24px rgba(0,0,0,.22); max-width: calc(100% - 16px); }
+.ttsbar .tb { min-width: 40px; height: 40px; border: 0; border-radius: 999px; background: var(--soft); color: var(--ink); font: inherit; font-size: 15px; font-weight: 700; cursor: pointer; padding: 0 10px; }
+.ttsbar .tb-v { max-width: 120px; font-size: 12px; }
