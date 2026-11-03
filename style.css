@@ -223,6 +223,15 @@ details.psg > summary { cursor: pointer; color: var(--accent); font-size: 14px; 
   .flow .arrow { align-self: center; width: 18px; height: 2px; margin: 0 10px 0 4px; flex: 0 0 auto; }
   .flow .arrow::after { left: auto; right: -6px; bottom: -5px; border: 6px solid transparent; border-left-color: var(--ink2); border-right: 0; }
 }
+.svgbox { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 8px; }
+.svgbox svg { display: block; width: 100%; max-width: 560px; height: auto; margin: 0 auto; font-family: var(--sans); }
+.svgbox text { text-anchor: middle; font-size: 16px; fill: var(--ink); }
+.svgbox .s-b { font-size: 18px; font-weight: 700; fill: var(--accent); }
+.svgbox .s-m { font-size: 15px; fill: var(--ink2); }
+.svgbox .s-box { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 2; }
+.svgbox .s-env { fill: none; stroke: var(--ink2); stroke-width: 1.5; stroke-dasharray: 6 5; }
+.svgbox .s-l { fill: none; stroke: var(--ink); stroke-width: 2; }
+.svgbox .s-h { fill: var(--ink); }
 .tl { list-style: none; margin: 0; padding: 4px 0 0 18px; border-left: 2px solid var(--line); margin-left: 6px; }
 .tl li { position: relative; padding: 0 0 12px 8px; display: grid; grid-template-columns: 6.5em 1fr; gap: 10px; font-size: .9em; line-height: 1.75; }
 .tl li::before { content: ""; position: absolute; left: -25px; top: .55em; width: 10px; height: 10px; border-radius: 50%; background: var(--card); border: 2px solid var(--accent); }

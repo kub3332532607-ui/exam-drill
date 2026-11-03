@@ -3,7 +3,7 @@
   var KS = window.KS, LET = ["A", "B", "C", "D"];
   var app = document.getElementById("app");
   // 版本號：和 sw.js 的 VER 保持一致，改程式時兩邊一起加一
-  var APP_VER = "ks-v44", APP_DATE = "2026-11-03";
+  var APP_VER = "ks-v45", APP_DATE = "2026-11-03";
 
   // ---------- 儲存 ----------
   var KEY = "ks_v1";
@@ -1419,7 +1419,7 @@
   function paras(sec) { return sec.text || sec.body || []; }
   // 圖表區塊（不能畫線，但算段落序號）：
   //  表格："表｜標題\n| 欄 | 欄 |\n|---|---|\n| 格 | 格 |"（標題可省略，直接以「| 」開頭）
-  //  流程："::flow 標題\n步驟｜說明\n步驟｜說明"　時間軸："::timeline 標題\n年份｜事件"
+  //  流程："::flow 標題\n步驟｜說明\n步驟｜說明"　時間軸："::timeline 標題\n年份｜事件"　向量圖："::svg 圖名 標題\n文字說明"（圖在 data/figs.js）
   function parseBlock(raw) {
     var lines = raw.split("\n"), cap = "";
     if (raw.slice(0, 2) === "表｜" || raw.slice(0, 2) === "| ") {
@@ -1428,6 +1428,8 @@
         .map(function (l) { return l.replace(/^\|/, "").replace(/\|\s*$/, "").split("|").map(function (c) { return c.trim(); }); });
       return { kind: "table", cap: cap, rows: rows };
     }
+    var s = /^::svg (\S+) ?(.*)$/.exec(lines[0]);
+    if (s) return { kind: "svg", key: s[1], cap: s[2], alt: lines.slice(1).join(" "), items: [] };
     var m = /^::(flow|timeline) ?(.*)$/.exec(lines[0]);
     if (m) return { kind: m[1], cap: m[2], items: lines.slice(1).filter(Boolean).map(function (l) { var i = l.indexOf("｜"); return i < 0 ? [l, ""] : [l.slice(0, i), l.slice(i + 1)]; }) };
     return null;
@@ -1441,7 +1443,11 @@
     var fig = h("figure", { class: "fig fig-" + b.kind });
     if (b.cap) fig.appendChild(h("figcaption", { text: b.cap }));
     var ix = 0;
-    if (b.kind === "table") {
+    if (b.kind === "svg") {
+      var pic = h("div", { class: "svgbox", role: "img", "aria-label": b.alt });
+      pic.innerHTML = (KS.figs && KS.figs[b.key]) || "";
+      fig.appendChild(pic);
+    } else if (b.kind === "table") {
       var tb = h("table"), thead = h("thead"), tbody = h("tbody");
       b.rows.forEach(function (r, i) {
         var tr = h("tr");
@@ -1521,6 +1527,7 @@
   function ttsBlocks(art) {
     return [].map.call(art.children, function (el) {
       var t = el.tagName === "FIGURE" ? (/fig-table/.test(el.className) ? ((el.querySelector("figcaption") || {}).textContent ? "表格：" + el.querySelector("figcaption").textContent : "") : el.textContent) : el.textContent;
+      if (/fig-svg/.test(el.className)) t = el.querySelector(".svgbox").getAttribute("aria-label");
       return { el: el, t: (t || "").replace(/\s+/g, " ").trim() };
     });
   }
