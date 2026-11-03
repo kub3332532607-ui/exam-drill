@@ -1,5 +1,11 @@
 # 更新紀錄
 
+## 2026-11-03（資料庫：憲法解釋 A 級 82 號）
+- data/db.js 的 rulings 由 1 筆範例擴充為 82 筆（釋字 77 號、憲法法庭判決 5 號），依題庫與課文出現次數挑選，取代釋字 499 號範例。sid 依主要科目：憲法 67、行政法 14、法學緒論 1。附 refs 連回課文。
+- 內容依講義、課文與題庫解析整理，年度與部分細節未逐號對官方全文；11 號在評析標「待核對」或「未核對」。reason 欄暫留空。
+- 待改：行政法 c1s4 對 111 年憲判字第 11 號的描述，與判決彙編標題不同。
+- 只改資料檔，未升版。
+
 ## 2026-11-03（ks-v43：data/con.js 改名 data/constitution.js）
 - 為避開 Windows 保留名稱 con（Windows 無法建立 con.js，本機 git pull 會出現 invalid path），把 data/con.js 改名為 data/constitution.js，檔案內容不變。科目 id 仍是 "con"，題庫 id 不變。
 - 更新 index.html 的 script 路徑（位置不變）與 sw.js 的快取清單；tools 交接文件的檔名一併更新。舊版 service worker 快取會因升版而更新。
