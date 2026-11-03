@@ -3,7 +3,7 @@
   var KS = window.KS, LET = ["A", "B", "C", "D"];
   var app = document.getElementById("app");
   // 版本號：和 sw.js 的 VER 保持一致，改程式時兩邊一起加一
-  var APP_VER = "ks-v37", APP_DATE = "2026-11-03";
+  var APP_VER = "ks-v38", APP_DATE = "2026-11-03";
 
   // ---------- 儲存 ----------
   var KEY = "ks_v1";
@@ -820,8 +820,14 @@
     });
     return d;
   }
+  function ksIcon(n) {
+    var P = { search: '<circle cx="10" cy="10" r="7"/><path d="M21 21l-6-6"/>', pencil: '<path d="M4 20h4L18.5 9.5a2.828 2.828 0 1 0-4-4L4 16v4"/><path d="M13.5 6.5l4 4"/>' };
+    var w = document.createElement("span"); w.className = "ks-ic";
+    w.innerHTML = '<svg viewBox="0 0 24 24" width="1.25em" height="1.25em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + P[n] + "</svg>";
+    return w;
+  }
   function modeBtn(on, fn) {
-    return h("button", { class: "chip qm-btn", "aria-pressed": String(on), text: on ? "✏️ 選項劃記中" : "✏️ 選項劃記", onclick: fn });
+    return h("button", { class: "chip qm-btn", "aria-pressed": String(on), onclick: fn }, ksIcon("pencil"), on ? " 選項劃記中" : " 選項劃記");
   }
 
   // ---------- 英文單字（data/vocab.js 由單字程式匯出，第一次用到英文題才載入） ----------

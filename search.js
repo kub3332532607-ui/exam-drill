@@ -341,7 +341,8 @@
   var closeBtn = h("button", { class: "sp-ic", "aria-label": "關閉搜尋", text: "✕", onclick: function () { close(); } });
   var panel = h("div", { class: "sp", role: "dialog", "aria-label": "搜尋" },
     h("div", { class: "sp-top" }, inp, dockBtn, sizeBtn, closeBtn), scopeRow, subRow, list);
-  var fab = h("button", { class: "sp-fab", "aria-label": "開啟搜尋", text: "🔍" });
+  var fab = h("button", { class: "sp-fab", "aria-label": "開啟搜尋" });
+  fab.innerHTML = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10" cy="10" r="7"/><path d="M21 21l-6-6"/></svg>';
   var wideMQ = window.matchMedia("(min-width: 860px)");
 
   function chip(label, on, fn, col) {
