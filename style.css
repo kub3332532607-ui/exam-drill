@@ -125,9 +125,9 @@ details.sec[open] > summary .ar { transform: rotate(90deg); }
 
 /* 題目 */
 .qno { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 14px; color: var(--ink2); }
-.qtext { font-family: var(--serif); font-weight: 500; font-size: 19px; line-height: 1.9; margin: 10px 0 14px; text-wrap: pretty; }
+.qtext { font-family: var(--serif); font-weight: 500; font-size: calc(19px * var(--qs, 1)); line-height: 1.9; margin: 10px 0 14px; text-wrap: pretty; }
 .opts { display: grid; gap: 8px; }
-.opt { display: grid; grid-template-columns: 32px 1fr; gap: 10px; align-items: start; text-align: left; font: inherit; font-family: var(--serif); font-size: 17px; line-height: 1.75; padding: 11px 12px; background: var(--soft); border: 1.5px solid transparent; border-radius: 12px; color: var(--ink); cursor: pointer; width: 100%; }
+.opt { display: grid; grid-template-columns: 32px 1fr; gap: 10px; align-items: start; text-align: left; font: inherit; font-family: var(--serif); font-size: calc(17px * var(--qs, 1)); line-height: 1.75; padding: 11px 12px; background: var(--soft); border: 1.5px solid transparent; border-radius: 12px; color: var(--ink); cursor: pointer; width: 100%; }
 .opt .L { width: 28px; height: 28px; border-radius: 50%; background: var(--card); display: grid; place-items: center; font-family: var(--sans); font-weight: 700; font-size: 13px; color: var(--ink2); position: relative; margin-top: 1px; }
 .opt.right { background: var(--green-soft); border-color: var(--green); }
 .opt.right .L { background: var(--green); color: var(--card); }
@@ -172,7 +172,7 @@ textarea { width: 100%; min-height: 76px; font: inherit; font-size: 15px; paddin
 /* 閱讀題組短文 */
 details.psg { background: var(--soft); border-radius: 12px; padding: 4px 12px; margin: 10px 0 4px; }
 details.psg > summary { cursor: pointer; color: var(--accent); font-size: 14px; font-weight: 700; padding: 6px 0; }
-.psg-t { font-family: var(--serif); font-size: 16px; line-height: 1.85; white-space: pre-line; padding: 2px 0 10px; overflow-wrap: anywhere; }
+.psg-t { font-family: var(--serif); font-size: calc(16px * var(--qs, 1)); line-height: 1.85; white-space: pre-line; padding: 2px 0 10px; overflow-wrap: anywhere; }
 
 /* 列印預覽與列印 */
 .preview { background: #fff; color: #000; border-radius: 6px; padding: 16px; box-shadow: var(--shadow); overflow-x: auto; }
@@ -441,3 +441,19 @@ body.noscroll { overflow: hidden; }
   .sp-fab { top: 50%; }
 }
 @media print { .sp, .sp-fab { display: none !important; } }
+
+/* 首頁鈕、自由計時 */
+.bar-r { display: flex; align-items: center; gap: 14px; }
+.fdlg { position: fixed; inset: 0; z-index: 80; background: rgba(0,0,0,.4); display: flex; align-items: flex-end; justify-content: center; }
+.fd-box { width: 100%; max-width: 480px; background: var(--card); border-radius: 18px 18px 0 0; padding: 16px 16px calc(16px + env(safe-area-inset-bottom, 0)); }
+@media (min-width: 560px) { .fdlg { align-items: center; } .fd-box { border-radius: 18px; } }
+.fd-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+.fd-chip { font: inherit; font-size: 14px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--ink2); cursor: pointer; }
+.fd-chip.on { background: var(--c); border-color: var(--c); color: #fff; }
+.fd-in { width: 100%; box-sizing: border-box; font: inherit; font-size: 16px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--soft); color: var(--ink); margin-top: 6px; }
+/* 計時器展開時，全螢幕訂正與搜尋面板往下讓出一列，叉叉／完成鈕才不會被擋住 */
+body.run-wide .fullov { padding-top: calc(58px + env(safe-area-inset-top, 0)); }
+@media (min-width: 860px) { body.run-wide .sp { top: 56px; } }
+.sp mark.sp-um { background: var(--hl, #fbe7a1); color: inherit; border-radius: 3px; padding: 1px 0; }
+.sp mark.sp-um mark { background: #ffb74d; }
+.qs-b { background: none; border: 0; font: inherit; font-size: 13px; color: var(--accent); cursor: pointer; padding: 2px 6px; }

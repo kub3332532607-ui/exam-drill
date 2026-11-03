@@ -74,12 +74,19 @@
       if (!a || num(b.ts) > num(a.ts)) out.qx[q] = b;
     });
 
-    // 每日任務：每天每個任務取聯集（任一邊打勾就算完成；_t 為最後修改，較新的一邊決定取消勾選）
+    // 每日任務：每個任務各自比時間。打勾時間是 plan[日][任務]，取消勾選記在 plan[日]._u[任務]；
+    // 打勾時間比取消時間新才算完成。不再用整天的 _t 決勝，避免落後的裝置一開 App 就洗掉另一台的勾選。
     Object.keys(R.plan).forEach(function (day) {
       var a = L.plan[day], b = R.plan[day];
       if (!a) { out.plan[day] = b; return; }
-      var w = num(b._t) > num(a._t) ? b : a, o = out.plan[day] = Object.assign({}, a, b);
-      Object.keys(o).forEach(function (t) { if (t.charAt(0) !== "_" && !w[t]) delete o[t]; });
+      var o = out.plan[day] = Object.assign({}, a, b), u = {}, ua = a._u || {}, ub = b._u || {};
+      Object.keys(ua).concat(Object.keys(ub)).forEach(function (t) { u[t] = Math.max(num(ua[t]), num(ub[t])); });
+      Object.keys(o).forEach(function (t) {
+        if (t.charAt(0) === "_") return;
+        var tk = Math.max(num(a[t]), num(b[t]));
+        if (tk > num(u[t])) o[t] = tk; else delete o[t];
+      });
+      if (Object.keys(u).length) o._u = u;
       o._t = Math.max(num(a._t), num(b._t));
     });
 

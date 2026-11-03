@@ -238,6 +238,27 @@
       default: return u.w;
     }
   }
+  // 在文字上疊上自己畫的重點（marks／qm），再套搜尋字詞的高光。m：[{q,o}]，o 是原先的位置，用來挑最近的一處
+  function lsLive() { try { return JSON.parse(localStorage.getItem("ks_v1")) || {}; } catch (e) { return {}; } }
+  function hlm(text, terms, ms) {
+    if (!ms || !ms.length) return hl(text, terms);
+    var sp = [];
+    ms.forEach(function (m) {
+      if (!m.q) return;
+      var best = -1, i = -1;
+      while ((i = text.indexOf(m.q, i + 1)) >= 0) if (best < 0 || Math.abs(i - (m.o || 0)) < Math.abs(best - (m.o || 0))) best = i;
+      if (best >= 0) sp.push([best, best + m.q.length]);
+    });
+    sp.sort(function (a, b) { return a[0] - b[0]; });
+    var out = document.createDocumentFragment(), at = 0;
+    sp.forEach(function (r) {
+      if (r[0] < at) return;
+      if (r[0] > at) out.appendChild(hl(text.slice(at, r[0]), terms));
+      out.appendChild(h("mark", { class: "sp-um" }, hl(text.slice(r[0], r[1]), terms))); at = r[1];
+    });
+    if (at < text.length) out.appendChild(hl(text.slice(at), terms));
+    return out;
+  }
   function row(u, terms) {
     var el = h("div", { class: "sp-row", role: "button", tabindex: "0" },
       h("div", { class: "sp-hd" }, h("span", { class: "sp-sub", style: "--c:" + (COL[u.sid] || "#6a7284"), text: u.k === "v" ? "單字" : sname(u.sid) }),
@@ -266,7 +287,7 @@
       var prev = btn("‹ 上一段", function () { cur--; paint2(); }, true), next = btn("下一段 ›", function () { cur++; paint2(); }, true);
       var paint2 = function () {
         var p = ps[cur] || { t: "" };
-        body.replaceChildren(hl(p.t, u.k === "p" ? terms : []));
+        body.replaceChildren(hlm(p.t, u.k === "p" ? terms : [], ((lsLive().marks || {})[u.sid + ":" + u.x.id] || []).filter(function (m) { return m.p === cur || (p.t || "").indexOf(m.q) >= 0; })));
         pos.textContent = "第 " + (cur + 1) + " / " + ps.length + " 段" + (p.g ? " · " + p.g : "");
         prev.disabled = cur <= 0; next.disabled = cur >= ps.length - 1;
       };
@@ -276,9 +297,10 @@
       acts([goBtn("前往全文", secHref(u.sid, u.c.id, u.x.id)), btn("複製這段", function () { copy((ps[cur] || {}).t || ""); }, true)]);
     } else if (u.k === "q") {
       var q = u.q;
-      box.appendChild(h("div", { class: "sp-qt" }, hl(q.q || "", terms)));
+      var QM = (lsLive().qm || {})[u.e.id + "#" + u.n] || [], qmOf = function (f) { return QM.filter(function (m) { return m.f === f; }); };
+      box.appendChild(h("div", { class: "sp-qt" }, hlm(q.q || "", terms, qmOf("q"))));
       if (q.g && u.e.passages && u.e.passages[q.g]) box.appendChild(h("details", { class: "sp-ps" }, h("summary", { text: "短文" }), h("div", { text: u.e.passages[q.g] })));
-      (q.o || []).forEach(function (o, i) { box.appendChild(h("div", { class: "sp-op" + (ansOf(q).indexOf(i) >= 0 ? " ok" : "") }, LET[i] + ". ", hl(o, terms))); });
+      (q.o || []).forEach(function (o, i) { box.appendChild(h("div", { class: "sp-op" + (ansOf(q).indexOf(i) >= 0 ? " ok" : "") }, LET[i] + ". ", hlm(o, terms, qmOf("o" + i)))); });
       box.appendChild(h("div", { class: "sp-ans", text: "答案：" + ansOf(q).map(function (i) { return LET[i]; }).join(" 或 ") }));
       if (q.note) box.appendChild(h("div", { class: "sp-x" }, "更正：", hl(q.note, terms)));
       if (q.x) box.appendChild(h("div", { class: "sp-x" }, "解析：", hl(q.x, terms)));
@@ -349,8 +371,8 @@
     var vv = window.visualViewport, vh = vv ? vv.height : innerHeight, vt = vv ? vv.offsetTop : 0;
     var keyboard = vv ? Math.max(0, innerHeight - vv.height - vv.offsetTop) : 0;
     // 鍵盤在別處（例如在寫訂正）時，面板只佔 42%，不蓋住正在輸入的框
-    panel.style.maxHeight = Math.round(inPanel() || !keyboard ? vh - 10 : vh * 0.42) + "px";
-    if (cfg.dock === "t") { panel.style.top = (vt + (document.body.classList.contains("has-run") ? 48 : 0)) + "px"; panel.style.bottom = "auto"; }
+    panel.style.maxHeight = Math.round((inPanel() || !keyboard ? vh - 10 : vh * 0.42) - (cfg.dock === "t" ? 0 : (document.body.classList.contains("run-wide") ? 56 : 0))) + "px";
+    if (cfg.dock === "t") { panel.style.top = (vt + (document.body.classList.contains("has-run") ? (document.body.classList.contains("run-wide") ? 52 : 64) : 0)) + "px"; panel.style.bottom = "auto"; }
     else { panel.style.bottom = keyboard + "px"; panel.style.top = "auto"; }
     var ph = panel.offsetHeight;
     b.paddingTop = cfg.dock === "t" ? "calc(" + ph + "px + env(safe-area-inset-top, 0px))" : "";

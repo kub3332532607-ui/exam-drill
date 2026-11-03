@@ -3,7 +3,7 @@
   var KS = window.KS, LET = ["A", "B", "C", "D"];
   var app = document.getElementById("app");
   // 版本號：和 sw.js 的 VER 保持一致，改程式時兩邊一起加一
-  var APP_VER = "ks-v35", APP_DATE = "2026-10-30";
+  var APP_VER = "ks-v36", APP_DATE = "2026-11-03";
 
   // ---------- 儲存 ----------
   var KEY = "ks_v1";
@@ -18,8 +18,24 @@
     S.attempts.forEach(function (a) { if (!a.set && a.exam) a.set = "e:" + a.exam; });
     S.essay = S.essay || {}; S.print = S.print || {}; S.marks = S.marks || {}; S.repq = S.repq || {}; S.read = S.read || {}; S.nts = S.nts || {}; S.del = S.del || {}; S.qm = S.qm || {}; S.qx = S.qx || {}; S.pos = S.pos || {}; S.plan = S.plan || {}; S.vw = S.vw || {}; S.tl = S.tl || {};
   }
+  // 離開前提醒：只看會同步的欄位，和「上次雲端同步完」的內容比；計時心跳這類只存本機的變動不算
+  var SIGK = "ks_sig";
+  function sig() { try { return JSON.stringify(KSSync.FIELDS.map(function (k) { return S[k]; })); } catch (e) { return ""; } }
+  function markSynced() { try { localStorage.setItem(SIGK, String(sig().length) + ":" + hash(sig())); } catch (e) {} }
+  function hash(t) { var h = 5381; for (var i = 0; i < t.length; i++) h = ((h << 5) + h + t.charCodeAt(i)) | 0; return h; }
+  function isDirty() { var c = KSSync.cfg(), v; if (!c.token) return false; try { v = localStorage.getItem(SIGK); } catch (e) { return false; } var now = sig(); return v != null && v !== String(now.length) + ":" + hash(now); }
   function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
-  function applyTheme() { if (S.theme) document.documentElement.setAttribute("data-theme", S.theme); else document.documentElement.removeAttribute("data-theme"); }
+  window.addEventListener("beforeunload", function (ev) {
+    if (isDirty()) { ev.preventDefault(); ev.returnValue = "還沒按雲端同步，確定要離開？"; return ev.returnValue; }
+  });
+  // 題目字級：小／中／大，全部題目頁共用（S.read.qs，只存本機）
+  var QS = [["小", .88], ["中", 1], ["大", 1.2], ["特大", 1.4]];
+  function applyQs() { document.documentElement.style.setProperty("--qs", String(QS[(S.read && S.read.qs) == null ? 1 : S.read.qs][1])); }
+  function qsBtn(n, key) {
+    var i = (S.read.qs == null ? 1 : S.read.qs);
+    return h("button", { class: "link qs-b", "aria-label": "題目字級", text: "字：" + QS[i][0], onclick: function () { S.read.qs = (i + 1) % QS.length; save(); applyQs(); route(); } });
+  }
+  function applyTheme() { applyQs(); if (S.theme) document.documentElement.setAttribute("data-theme", S.theme); else document.documentElement.removeAttribute("data-theme"); }
 
   // ---------- 工具 ----------
   function h(tag, attrs) {
@@ -60,7 +76,38 @@
     var next = S.theme === "dark" ? "light" : S.theme === "light" ? "" : "dark";
     return h("div", { class: "bar" },
       back ? h("a", { class: "back", href: back, text: "‹ " + (label || "返回") }) : h("span", { class: "brand", text: "國考刷題本" }),
-      h("button", { class: "link", text: S.theme === "dark" ? "☀︎ 日間" : S.theme === "light" ? "跟隨系統" : "☾ 夜間", onclick: function () { S.theme = next; save(); applyTheme(); route(); } }));
+      h("span", { class: "bar-r" },
+        back ? h("a", { class: "link", href: "#/", "aria-label": "回首頁", text: "⌂ 首頁" }) : null,
+        h("button", { class: "link", "aria-label": "自由計時與補記", text: "⏱ 計時", onclick: freeTimer }),
+      h("button", { class: "link", text: S.theme === "dark" ? "☀︎ 日間" : S.theme === "light" ? "跟隨系統" : "☾ 夜間", onclick: function () { S.theme = next; save(); applyTheme(); route(); } })));
+  }
+  // 自由計時與補記：不必排在今日任務裡，任何科目都能開始計時或補記分鐘
+  function freeTimer() {
+    if (document.querySelector(".fdlg")) return;
+    var sid = (S.run && S.run.sid) || (KS.subjects[0] || {}).id || "", lab = h("input", { class: "fd-in", placeholder: "內容（選填，例如：憲法 第3章複習）", maxlength: "40" });
+    var num = h("input", { class: "fd-in", type: "number", inputmode: "numeric", min: "1", max: "600", placeholder: "補記幾分鐘" });
+    var chips = h("div", { class: "fd-chips" });
+    var opts = KS.subjects.map(function (x) { return { id: x.id, name: x.name }; }).concat([{ id: "", name: "其他" }]);
+    function paint() { chips.replaceChildren.apply(chips, opts.map(function (o) { return h("button", { class: "fd-chip" + (o.id === sid ? " on" : ""), style: "--c:" + (COL[o.id] || COL[""]), text: o.name, onclick: function () { sid = o.id; paint(); } }); })); }
+    function nm() { var o = opts.filter(function (x) { return x.id === sid; })[0]; return lab.value.trim() || ("自習・" + (o ? o.name : "其他")); }
+    function done() { ov.remove(); }
+    var ov = h("div", { class: "fdlg", role: "dialog", "aria-label": "自由計時", onclick: function (ev) { if (ev.target === ov) done(); } },
+      h("div", { class: "fd-box" },
+        h("div", { class: "h2", text: "自由計時・補記" }), h("div", { class: "small", text: "不在今日排程裡的科目也能記。" }),
+        chips, lab,
+        h("div", { class: "btns" }, h("button", { class: "btn", text: "▶ 開始計時", onclick: function () {
+          var t = { id: "free:" + sid, t: nm(), sid: sid, min: 60, href: location.hash || "#/" };
+          tStart(t, ymd(new Date())); done(); route();
+        } })),
+        num,
+        h("div", { class: "btns" },
+          h("button", { class: "btn", text: "補記分鐘", onclick: function () {
+            var n = Math.round(parseFloat(num.value)); if (isNaN(n) || n < 1 || n > 600) { toast("請輸入 1–600 分鐘"); return; }
+            S.tl["t" + Date.now().toString(36)] = { d: ymd(new Date()), k: "free:" + sid, t: nm(), sid: sid, m: n, ts: Date.now() };
+            save(); toast("記下 " + n + " 分鐘"); done(); route();
+          } }),
+          h("button", { class: "btn soft", text: "取消", onclick: done }))));
+    paint(); document.body.appendChild(ov);
   }
 
   // ---------- 題組（考卷、章節、錯題共用） ----------
@@ -263,7 +310,7 @@
       var id = "t" + Date.now().toString(36);
       S.tl[id] = { d: r.d, k: r.k, t: r.t, sid: r.sid, m: m, ts: Date.now() };
       var pl = S.plan[r.d] = S.plan[r.d] || {};
-      if (!pl[r.k] && r.k.indexOf("ch:") && taskMin(r.d, r.k) >= r.min * 0.8) { pl[r.k] = Date.now(); pl._t = Date.now(); }
+      if (!pl[r.k] && r.k.indexOf("ch:") && r.k.indexOf("free:") && taskMin(r.d, r.k) >= r.min * 0.8) { pl[r.k] = Date.now(); pl._t = Date.now(); }
     }
     save(); runBar();
     if (!quiet) { toast(m >= 1 ? "記下 " + m + " 分鐘" : "不到 1 分鐘，不記"); if (!location.hash || location.hash === "#/") route(); }
@@ -279,10 +326,11 @@
   var rbar = null, rtick = null;
   function runBar() {
     var r = S.run;
-    if (!r) { if (rbar) { rbar.remove(); rbar = null; } clearInterval(rtick); rtick = null; document.body.classList.remove("has-run"); return; }
+    if (!r) { if (rbar) { rbar.remove(); rbar = null; } clearInterval(rtick); rtick = null; document.body.classList.remove("has-run", "run-wide"); return; }
     if (!rbar) { rbar = h("div", { class: "runbar", role: "status" }); document.body.appendChild(rbar); document.body.classList.add("has-run"); }
     rbar.style.setProperty("--c", COL[r.sid] || COL[""]);
     rbar.classList.toggle("mini", !!(S.rbm && !r.away));
+    document.body.classList.toggle("run-wide", !(S.rbm && !r.away));
     if (r.away) {
       var g = Math.round((Date.now() - r.away) / 6e4);
       rbar.replaceChildren(h("div", { class: "rb-q", text: (r.ext ? "剛剛 " + g + " 分鐘都在背單字嗎？" : "剛剛離開 " + g + " 分鐘，要算進去嗎？") }),
@@ -327,7 +375,7 @@
     function row(t) {
       var on = !!pl[t.id], used = taskMin(P.date, t.id), run = S.run && S.run.k === t.id && S.run.d === P.date;
       var box = h("button", { class: "tk-box" + (on ? " on" : ""), "aria-label": on ? "取消完成" : "完成", text: on ? "✓" : "", onclick: function () {
-        if (pl[t.id]) delete pl[t.id]; else pl[t.id] = Date.now();
+        if (pl[t.id]) { delete pl[t.id]; (pl._u = pl._u || {})[t.id] = Date.now(); } else pl[t.id] = Date.now();
         pl._t = Date.now(); save(); route();
       } });
       var play = h("button", { class: "tk-play" + (run ? " on" : ""), "aria-label": "開始計時", style: "--c:" + (COL[t.sid] || COL[""]), onclick: function () {
@@ -377,20 +425,24 @@
       return h("div", { class: "wk-log" }, h("span", { text: ("0" + t.getHours()).slice(-2) + ":" + ("0" + t.getMinutes()).slice(-2) + "　" + x.t + "　" + x.m + " 分" }),
         h("button", { class: "link", text: "刪除", onclick: function () { if (confirm("刪除這筆 " + x.m + " 分鐘的紀錄？")) { S.tl[id] = { del: 1, ts: Date.now() }; save(); route(); } } }));
     });
-    var sel = h("select", { class: "wk-sel", "aria-label": "任務" }, (P ? P.tasks : []).map(function (t, i) { return h("option", { value: String(i), text: t.t }); }));
+    var tasks = (P ? P.tasks : []).slice();
+    KS.subjects.forEach(function (x) { tasks.push({ id: "free:" + x.id, t: "自習・" + x.name, sid: x.id, min: 60 }); });
+    tasks.push({ id: "free:", t: "自習・其他", sid: "", min: 60 });
+    var sel = h("select", { class: "wk-sel", "aria-label": "任務" }, tasks.map(function (t, i) { return h("option", { value: String(i), text: t.t }); }));
     var num = h("input", { class: "wk-num", type: "number", inputmode: "numeric", min: "1", max: "600", placeholder: "分鐘" });
-    var add = P && P.tasks.length ? h("div", { class: "wk-add" }, h("div", { class: "small", text: "手動補記（忘了按計時）" }), h("div", { class: "wk-addr" }, sel, num,
+    var add = P ? h("div", { class: "wk-add" }, h("div", { class: "small", text: "手動補記（忘了按計時）" }), h("div", { class: "wk-addr" }, sel, num,
       h("button", { class: "rb-b", text: "加入", onclick: function () {
-        var n = Math.round(parseFloat(num.value)), t = P.tasks[+sel.value];
+        var n = Math.round(parseFloat(num.value)), t = tasks[+sel.value];
         if (!t || isNaN(n) || n < 1 || n > 600) { toast("請輸入 1–600 分鐘"); return; }
         S.tl["t" + Date.now().toString(36)] = { d: P.date, k: t.id, t: t.t, sid: t.sid || "", m: n, ts: Date.now() };
         var pl = S.plan[P.date] = S.plan[P.date] || {};
-        if (!pl[t.id] && t.id.indexOf("ch:") && taskMin(P.date, t.id) >= t.min * 0.8) { pl[t.id] = Date.now(); pl._t = Date.now(); }
+        if (!pl[t.id] && t.id.indexOf("ch:") && t.id.indexOf("free:") && taskMin(P.date, t.id) >= t.min * 0.8) { pl[t.id] = Date.now(); pl._t = Date.now(); }
         save(); toast("記下 " + n + " 分鐘"); route();
       } }))) : null;
-    return h("details", { class: "wk" }, h("summary", { text: "本週 " + fmtM(tot) + (tot ? "・看各科分布" : "") }),
-      h("div", { class: "wk-g" }, cols), leg.length ? h("div", { class: "wk-lgs" }, leg) : null,
-      add, rows.length ? h("div", { class: "wk-logs" }, h("div", { class: "small", text: "今天的紀錄" }), rows) : null);
+    var todayMin = dayMin(today);
+    return h("details", { class: "wk" }, h("summary", { text: "今天 " + fmtM(todayMin) + "・近 7 天 " + fmtM(tot) + (tot ? "・看各科分布" : "") }),
+      h("div", { class: "wk-g" }, cols), leg.length ? h("div", { class: "wk-lgs" }, h("b", { text: "近 7 天各科：" }), leg) : null,
+      add, rows.length ? h("div", { class: "wk-logs" }, h("div", { class: "small", text: "今天的紀錄（合計 " + fmtM(todayMin) + "，只含今天）" }), rows) : null);
   }
 
   // ---------- 首頁 ----------
@@ -464,7 +516,7 @@
     if (syncing) return; syncing = true;
     if (btn) { btn.disabled = true; btn.textContent = "同步中…"; }
     KSSync.sync(S, function (m) { KSSync.FIELDS.forEach(function (k) { S[k] = m[k]; }); migrate(); save(); })
-      .then(function (r) { syncing = false; toast(r.up ? "已同步（有更新上傳）" : "已同步，雲端已是最新"); route(); })
+      .then(function (r) { syncing = false; markSynced(); toast(r.up ? "已同步（有更新上傳）" : "已同步，雲端已是最新"); route(); })
       .catch(function (e) { syncing = false; toast(syncErr(e)); route(); });
   }
   function syncCard() {
@@ -911,7 +963,7 @@
       !vis && old ? h("button", { class: "link", text: "顯示上次劃記（" + old + "）", onclick: function () { qshow[k] = true; viewPractice(key, n); } }) : null);
     var eng = it.e.subject === "eng";
     var card = h("div", { class: "card" + (eng ? " eng-lk" : ""), "data-src": eng ? qLabel(it) : null },
-      h("div", { class: "qno" }, h("span", { text: n + " / " + set.items.length }), h("span", { text: it.e.short + " 第 " + qno(it) + " 題" })),
+      h("div", { class: "qno" }, h("span", { text: n + " / " + set.items.length }), h("span", { text: it.e.short + " 第 " + qno(it) + " 題" }), qsBtn(n, key)),
       tools,
       qmode ? h("div", { class: "small qm-hint", text: "長按選字畫線，點畫過的線可擦掉；點選項字母可劃掉選項。作答前先關掉劃記。" }) : null,
       psgEl(it, true, qmode, vis, pk != null), q.q ? mkText("div", "qtext", q.q, k, "q", qmode, vis) : null, opts);
@@ -1110,9 +1162,9 @@
   function renderBlock(b, fill) {
     var fig = h("figure", { class: "fig fig-" + b.kind });
     if (b.cap) fig.appendChild(h("figcaption", { text: b.cap }));
+    var ix = 0;
     if (b.kind === "table") {
       var tb = h("table"), thead = h("thead"), tbody = h("tbody");
-      var ix = 0;
       b.rows.forEach(function (r, i) {
         var tr = h("tr");
         r.forEach(function (c, j) { var el = h(i === 0 ? "th" : j === 0 ? "th" : "td", i > 0 && j === 0 ? { scope: "row" } : null); if (fill && b.cells) fill(el, b.cells[ix]); else el.appendChild(inline(c)); ix++; tr.appendChild(el); });
@@ -1124,12 +1176,18 @@
       var fl = h("div", { class: "flow" });
       b.items.forEach(function (it, i) {
         if (i) fl.appendChild(h("div", { class: "arrow", "aria-hidden": "true" }));
-        fl.appendChild(h("div", { class: "step" }, h("div", { class: "st" }, inline(it[0])), it[1] ? h("div", { class: "sd" }, inline(it[1])) : null));
+        var st = h("div", { class: "st" }), sd = it[1] ? h("div", { class: "sd" }) : null;
+        if (fill && b.cells) { fill(st, b.cells[ix++]); if (sd) fill(sd, b.cells[ix++]); } else { st.appendChild(inline(it[0])); if (sd) sd.appendChild(inline(it[1])); }
+        fl.appendChild(h("div", { class: "step" }, st, sd));
       });
       fig.appendChild(fl);
     } else {
       var ol = h("ol", { class: "tl" });
-      b.items.forEach(function (it) { ol.appendChild(h("li", null, h("span", { class: "y", text: it[0] }), h("span", { class: "ev" }, inline(it[1])))); });
+      b.items.forEach(function (it) {
+        var y = h("span", { class: "y" }), ev = h("span", { class: "ev" });
+        if (fill && b.cells) { fill(y, b.cells[ix++]); fill(ev, b.cells[ix++]); } else { y.textContent = it[0]; ev.appendChild(inline(it[1])); }
+        ol.appendChild(h("li", null, y, ev));
+      });
       fig.appendChild(ol);
     }
     return fig;
@@ -1141,6 +1199,10 @@
     if (blk) {
       blk.plain = ""; blk.bold = [];
       if (blk.kind === "table") { blk.cells = []; blk.rows.forEach(function (r) { r.forEach(function (c) { var o = boldOf(c), st = blk.plain.length; o.bold.forEach(function (x) { blk.bold.push([x[0] + st, x[1] + st]); }); blk.cells.push([st, o.plain.length]); blk.plain += o.plain + "\n"; }); }); }
+      else {   // 流程、時間軸：每個步驟／年份與說明各算一格，也能畫線
+        blk.cells = [];
+        blk.items.forEach(function (it) { it.forEach(function (c, j) { if (j === 1 && !c) return; var o = boldOf(c), st = blk.plain.length; o.bold.forEach(function (x) { blk.bold.push([x[0] + st, x[1] + st]); }); blk.cells.push([st, o.plain.length]); blk.plain += o.plain + "\n"; }); });
+      }
       return blk;
     }
     var kind = "p";
@@ -1181,7 +1243,6 @@
       var ps = paras(sec).map(parsePara), list = S.marks[MK] || [], pos = resolveMarks(list, ps);
       art.replaceChildren();
       ps.forEach(function (pp, i) {
-        if (pp.items) return art.appendChild(renderBlock(pp));
         var n = pp.plain.length, b = new Array(n), m = new Array(n);
         pp.bold.forEach(function (r) { for (var k = r[0]; k < r[1]; k++) b[k] = 1; });
         list.forEach(function (mk) { var at = pos[mk.id]; if (at && at[0] === i) for (var k = at[1]; k < at[1] + mk.q.length && k < n; k++) m[k] = mk; });
@@ -1199,7 +1260,7 @@
             el.appendChild(node); k = j;
           }
         }
-        if (pp.rows) return art.appendChild(renderBlock(pp, function (el, cell) { fill(el, cell[0], cell[0] + cell[1]); }));
+        if (pp.rows || pp.items) return art.appendChild(renderBlock(pp, function (el, cell) { fill(el, cell[0], cell[0] + cell[1]); }));
         var el = h(pp.kind === "h" ? "h3" : "p", { class: pp.kind === "tip" ? "tip" : null, id: pp.kind === "h" ? "h" + i : null });
         fill(el, 0, n);
         art.appendChild(el);
@@ -1591,7 +1652,7 @@
     viewHome();
   }
   window.addEventListener("hashchange", route);
-  load(); applyTheme(); route(); runInit();
+  load(); try { if (localStorage.getItem(SIGK) == null) markSynced(); } catch (e) {} applyTheme(); route(); runInit();
   if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).catch(function () {});
   if (/^https?:$/.test(location.protocol)) setTimeout(function () { checkUpdate(null, true); }, 1500);
 })();
