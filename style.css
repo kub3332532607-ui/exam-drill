@@ -91,7 +91,7 @@ details.sec[open] > summary .ar { transform: rotate(90deg); }
 .rd-meta { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 6px 12px; }
 .chips.sm { margin: 0; gap: 4px; }
 .chips.sm .chip { min-height: 32px; padding: 4px 12px; font-size: 13px; }
-.art { font-family: var(--serif); font-size: var(--rfs, 18px); line-height: 2; padding: 10px 4px 18px; text-align: justify; text-wrap: pretty; overflow-wrap: anywhere; }
+.art { font-family: var(--serif); font-size: var(--rfs, 18px); line-height: 2; padding: 10px 4px 18px; text-align: left; text-wrap: pretty; overflow-wrap: anywhere; }
 .art p { margin: 0 0 1.15em; text-indent: 2em; }
 .art h3 { font-size: 1.08em; font-weight: 700; margin: 1.8em 0 .6em; padding-left: 10px; border-left: 4px solid var(--accent); line-height: 1.6; }
 .art h3:first-child { margin-top: .4em; }
