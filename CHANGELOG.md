@@ -1,5 +1,9 @@
 # 更新紀錄
 
+## 2026-11-03（ks-v43：data/con.js 改名 data/constitution.js）
+- 為避開 Windows 保留名稱 con（Windows 無法建立 con.js，本機 git pull 會出現 invalid path），把 data/con.js 改名為 data/constitution.js，檔案內容不變。科目 id 仍是 "con"，題庫 id 不變。
+- 更新 index.html 的 script 路徑（位置不變）與 sw.js 的快取清單；tools 交接文件的檔名一併更新。舊版 service worker 快取會因升版而更新。
+
 ## 2026-11-03（回報處理：憲法 c1s2、c1s5）
 - 刪除第 1 章題庫 2 題：「以下何項不屬於憲法賴以存立的基礎？」（原第 69 題）、「動員戡亂時期臨時條款於民國49 年間…」（原第 57 題）。題號 no 是存好的欄位，其他題號不位移。
 - c1s2：第 5 段補制憲 vs 修憲（制憲是政治行為、修憲是法律行為、剛性憲法的定義），第 6 段補釋字 499 的修憲界限（基本原則 vs 憲律）；節末新增 !! 民意代表任期易錯框與「制憲與修憲的比較」表。
