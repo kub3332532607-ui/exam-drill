@@ -3,7 +3,7 @@
   var KS = window.KS, LET = ["A", "B", "C", "D"];
   var app = document.getElementById("app");
   // 版本號：和 sw.js 的 VER 保持一致，改程式時兩邊一起加一
-  var APP_VER = "ks-v40", APP_DATE = "2026-11-03";
+  var APP_VER = "ks-v41", APP_DATE = "2026-11-03";
 
   // ---------- 儲存 ----------
   var KEY = "ks_v1";
@@ -206,7 +206,7 @@
     chapters(sid).forEach(function (c) {
       var secs = c.sections || [], key = sid + ":" + c.id, len = 0, n = 0;
       secs.forEach(function (x) { var r = S.pos["rd:" + sid + ":" + x.id]; if (r && r.fin) n++; len += paras(x).join("").length; });
-      var m = chMin(key); if (secs.length && n === secs.length && m >= 8 && len > 600) xs.push(m / (len / 200));
+      var m = chMin(key); if (secs.length && n === secs.length && m >= 8 && len > 600 && (SC.skip || []).indexOf(key) < 0) xs.push(m / (len / 200));
     });
     var base = (SC.mult || {})[sid] || 1, v = xs.length ? Math.max(0.4, Math.min(1.6, xs.reduce(function (a, b) { return a + b; }, 0) / xs.length)) : base;
     return (paceCache[sid] = { v: v, n: xs.length, base: base });
@@ -360,29 +360,35 @@
     if (S.run && S.run.k === t.id && S.run.d === date) { if (!S.run.t0) tResume(); return; }
     if (S.run) tStop(true);
     S.run = { k: t.id, t: t.t, sid: t.sid || "", min: t.min, d: date, href: t.href, ext: !!t.ext, acc: 0, t0: Date.now(), hb: Date.now() };
-    save(); runBar();
+    qMark(); save(); runBar();
   }
-  function tPause() { var r = S.run; if (!r || !r.t0) return; r.acc += Date.now() - r.t0; r.t0 = null; r.p = 1; save(); runBar(); }
-  function tResume() { var r = S.run; if (!r) return; r.t0 = Date.now(); r.p = 0; r.away = null; save(); runBar(); }
+  // 做題時間：章計時進行中，停在章節題目頁（#/p/c:…）的毫秒另外累計（r.q），結束時記成 chq:，不算進讀章速度，但仍算進當天讀書時間
+  function qFlush() { var r = S.run; if (r && r.qt) { if (r.t0) r.q = (r.q || 0) + Date.now() - r.qt; r.qt = null; } }
+  function qMark() { var r = S.run; if (!r || r.k.indexOf("ch:")) return; qFlush(); if (r.t0 && /^#\/p\/c:/.test(location.hash)) r.qt = Date.now(); }
+  window.addEventListener("hashchange", qMark);
+  function tPause() { var r = S.run; if (!r || !r.t0) return; qFlush(); r.acc += Date.now() - r.t0; r.t0 = null; r.p = 1; save(); runBar(); }
+  function tResume() { var r = S.run; if (!r) return; r.t0 = Date.now(); r.p = 0; r.away = null; qMark(); save(); runBar(); }
   function tStop(quiet) {
     var r = S.run; if (!r) return;
-    var m = Math.round(runMs() / 6e4);
+    var ms = runMs(), m = Math.round(ms / 6e4), mq = 0;
+    qFlush(); if (!r.k.indexOf("ch:")) mq = Math.min(m, Math.round(Math.min(r.q || 0, ms) / 6e4));
     S.run = null;
     if (m >= 1) {
       var id = "t" + Date.now().toString(36);
-      S.tl[id] = { d: r.d, k: r.k, t: r.t, sid: r.sid, m: m, ts: Date.now() };
+      if (mq >= 1) S.tl[id + "q"] = { d: r.d, k: "chq:" + r.k.slice(3), t: r.t + "（做題）", sid: r.sid, m: mq, ts: Date.now() };
+      if (m - mq >= 1 || !mq) S.tl[id] = { d: r.d, k: r.k, t: r.t, sid: r.sid, m: m - mq, ts: Date.now() };
       var pl = S.plan[r.d] = S.plan[r.d] || {};
       if (!pl[r.k] && r.k.indexOf("ch:") && r.k.indexOf("free:") && taskMin(r.d, r.k) >= r.min * 0.8) { pl[r.k] = Date.now(); pl._t = Date.now(); }
     }
     save(); runBar();
-    if (!quiet) { toast(m >= 1 ? "記下 " + m + " 分鐘" : "不到 1 分鐘，不記"); if (!location.hash || location.hash === "#/") route(); }
+    if (!quiet) { toast(m >= 1 ? "記下 " + m + " 分鐘" + (mq >= 1 ? "（做題 " + mq + "）" : "") : "不到 1 分鐘，不記"); if (!location.hash || location.hash === "#/") route(); }
   }
   // 離開畫面（切程式、關螢幕、被叫走）就先停，回來再問要不要算進去
-  function tAway() { var r = S.run; if (!r || !r.t0) return; r.acc += Date.now() - r.t0; r.t0 = null; r.away = Date.now(); save(); }
+  function tAway() { var r = S.run; if (!r || !r.t0) return; qFlush(); r.acc += Date.now() - r.t0; r.t0 = null; r.away = Date.now(); save(); }
   function tBack() {
     var r = S.run; if (!r || !r.away) return;
     var gap = Date.now() - r.away;
-    if (gap < 9e4) { r.acc += gap; r.away = null; r.t0 = Date.now(); save(); }
+    if (gap < 9e4) { r.acc += gap; r.away = null; r.t0 = Date.now(); qMark(); save(); }
     runBar();
   }
   var rbar = null, rtick = null;
