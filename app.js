@@ -3,7 +3,7 @@
   var KS = window.KS, LET = ["A", "B", "C", "D"];
   var app = document.getElementById("app");
   // 版本號：和 sw.js 的 VER 保持一致，改程式時兩邊一起加一
-  var APP_VER = "ks-v39", APP_DATE = "2026-11-03";
+  var APP_VER = "ks-v40", APP_DATE = "2026-11-03";
 
   // ---------- 儲存 ----------
   var KEY = "ks_v1";
@@ -519,7 +519,29 @@
   }
 
   // ---------- 首頁 ----------
-  function viewHome() {
+  // ---------- 主介面：底部五個分頁（今天／科目／錯題／資料庫／設定） ----------
+  var TABS = [["", "今天", "home"], ["subjects", "科目", "book"], ["wrong", "錯題", "flag"], ["db", "資料庫", "db"], ["settings", "設定", "gear"]];
+  var TAB_IC = {
+    home: '<path d="M4 11l8-7 8 7v8a1 1 0 0 1-1 1h-4v-6h-6v6H5a1 1 0 0 1-1-1z"/>',
+    book: '<path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19V5"/><path d="M9 7h6"/>',
+    flag: '<path d="M5 21V4"/><path d="M5 4h12l-2 4 2 4H5"/>',
+    db: '<ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v6c0 1.7 3.1 3 7 3s7-1.3 7-3V6"/><path d="M5 12v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6"/>',
+    gear: '<circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/>'
+  };
+  var tabbar = null;
+  function setTabbar(cur) {
+    if (cur == null) { if (tabbar) tabbar.hidden = true; document.body.classList.remove("has-tabs"); return; }
+    if (!tabbar) { tabbar = h("nav", { class: "tabbar", "aria-label": "主選單" }); document.body.appendChild(tabbar); }
+    tabbar.hidden = false; document.body.classList.add("has-tabs");
+    tabbar.replaceChildren.apply(tabbar, TABS.map(function (t) {
+      var a = h("a", { href: "#/" + t[0], "aria-current": cur === t[0] ? "page" : null });
+      var ic = document.createElement("span"); ic.className = "tb-ic";
+      ic.innerHTML = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + TAB_IC[t[2]] + "</svg>";
+      a.appendChild(ic); a.appendChild(h("span", { class: "tb-t", text: t[1] }));
+      return a;
+    }));
+  }
+  function subjectRows() {
     var rows = h("div", { class: "rows" });
     KS.subjects.forEach(function (s) {
       var ex = KS.exams.filter(function (e) { return e.subject === s.id; });
@@ -530,20 +552,87 @@
       rows.appendChild(has ? h("a", { class: "row", href: "#/s/" + s.id }, h("div", null, h("div", { class: "nm", text: s.name }), h("div", { class: "sub", text: sub })), h("span", { class: "go", text: "›" }))
         : h("div", { class: "row off" }, h("div", null, h("div", { class: "nm", text: s.name }), h("div", { class: "sub", text: sub })), s.link ? h("a", { class: "pill blue", href: s.link, target: "_blank", rel: "noopener", text: s.linkText }) : h("span")));
     });
-    var wr = 0; Object.keys(S.stats).forEach(function (k) { if (S.stats[k].last === "w") wr++; });
+    return rows;
+  }
+  function reportCard() {
     var rp = pendingReports().length, vn = vwPending().length;
+    return rp + vn ? h("a", { class: "card row rep-card", href: "#/rep" }, h("div", null, h("div", { class: "nm", text: "回報給 Claude" }), h("div", { class: "sub", text: [rp ? rp + " 則訂正等著補進課文" : "", vn ? vn + " 個生字等著補進單字程式" : ""].filter(Boolean).join("・") })), h("span", { class: "go", text: "›" })) : null;
+  }
+  function viewHome() {
     var L = S.pos.last;
     show(topbar(),
       L && L.href ? h("a", { class: "card row cont-card", href: L.href }, h("div", null, h("div", { class: "eyebrow", text: "繼續上次" }), h("div", { class: "nm", text: L.label }), L.sub ? h("div", { class: "sub", text: L.sub }) : null), h("span", { class: "go", text: "›" })) : null,
-      planCard(),
-      h("div", { class: "card" }, h("div", { class: "eyebrow", text: "一般行政" }), h("div", { class: "title", text: "今天讀哪一科？" }), h("div", { class: "muted", text: wr ? "錯題本裡還有 " + wr + " 題等你回來。" : "先複習一章，再寫那一章的考古題。" })),
-      h("div", { class: "card" }, rows),
-      rp + vn ? h("a", { class: "card row rep-card", href: "#/rep" }, h("div", null, h("div", { class: "nm", text: "回報給 Claude" }), h("div", { class: "sub", text: [rp ? rp + " 則訂正等著補進課文" : "", vn ? vn + " 個生字等著補進單字程式" : ""].filter(Boolean).join("、") })), h("span", { class: "pill blue", text: String(rp + vn) })) : null,
-      syncCard(),
+      planCard(), reportCard());
+  }
+  function viewSubjects() {
+    show(topbar(), h("h1", { class: "pg-t", text: "科目" }), h("div", { class: "card" }, subjectRows()));
+  }
+  // 錯題：各科錯題數、待加強的申論、到期要閉卷重寫的申論
+  function viewWrong() {
+    var wb = wrongBySubject(), box = h("div", { class: "card" });
+    var subs = KS.subjects.filter(function (s) { return wb.m[s.id]; }).sort(function (a, b) { return wb.m[b.id] - wb.m[a.id]; });
+    box.appendChild(h("div", { class: "h2", text: wb.tot ? "錯題 " + wb.tot + " 題" : "目前沒有錯題" }));
+    if (subs.length) box.appendChild(h("div", { class: "rows" }, subs.map(function (s) {
+      return h("a", { class: "row", href: "#/s/" + s.id + "/wr", style: "--c:" + (COL[s.id] || COL[""]) }, h("div", null, h("div", { class: "nm", text: s.name }), h("div", { class: "sub", text: wb.m[s.id] + " 題・點開重做" })), h("span", { class: "go", text: "›" }));
+    })));
+    var weak = KS.essays.filter(function (x) { return S.essay[x.id] && S.essay[x.id].rate === "weak"; }), due = esDue();
+    var notes = Object.keys(S.notes).filter(function (k) { return (S.notes[k] || "").trim(); }).length;
+    var es = h("div", { class: "card" }, h("div", { class: "h2", text: "申論" }));
+    if (due.length) { es.appendChild(h("div", { class: "small", text: "到期，該閉卷重寫了：" })); due.forEach(function (x) { es.appendChild(h("a", { class: "pill blue", style: "display:inline-block;margin:4px 6px 0 0", href: "#/es/" + x.id, text: subj(x.subject).name + "・" + x.src })); }); }
+    if (weak.length) { es.appendChild(h("div", { class: "small", style: "margin-top:8px", text: "標記需加強：" })); weak.forEach(function (x) { es.appendChild(h("a", { class: "pill", style: "display:inline-block;margin:4px 6px 0 0", href: "#/es/" + x.id, text: subj(x.subject).name + "・" + x.src })); }); }
+    if (!due.length && !weak.length) es.appendChild(h("div", { class: "small", text: "沒有需要回頭的申論。" }));
+    show(topbar(), h("h1", { class: "pg-t", text: "錯題" }), box, es, h("div", { class: "card" }, h("div", { class: "h2", text: "我的訂正" }), h("div", { class: "small", text: "共寫了 " + notes + " 題訂正。用右緣的搜尋可以一次找出來。" })));
+  }
+  function viewSettings() {
+    var next = S.theme === "dark" ? "light" : S.theme === "light" ? "" : "dark";
+    var theme = h("div", { class: "card" }, h("div", { class: "h2", text: "外觀" }),
+      h("div", { class: "chips" }, [["", "跟隨系統"], ["light", "日間"], ["dark", "夜間"]].map(function (t) { return h("button", { class: "chip", "aria-pressed": String(S.theme === t[0]), text: t[1], onclick: function () { S.theme = t[0]; save(); applyTheme(); route(); } }); })));
+    show(topbar(), h("h1", { class: "pg-t", text: "設定" }), syncCard(), theme,
       h("div", { class: "card" }, h("div", { class: "h2", text: "備份" }), h("div", { class: "small", text: "進度存在這個瀏覽器。也可以匯出成檔案，到另一台裝置匯入。" }),
         h("div", { class: "btns" }, h("button", { class: "btn soft", text: "匯出進度", onclick: exportData }), h("label", { class: "btn soft", for: "imp", text: "匯入進度" }),
           h("input", { id: "imp", type: "file", accept: "application/json", hidden: true, onchange: importData }))),
-      verCard());
+      reportCard(), h("a", { class: "card row", href: "#/sch" }, h("div", null, h("div", { class: "nm", text: "排程表・進度回報" }), h("div", { class: "sub", text: "每章預定日與狀態" })), h("span", { class: "go", text: "›" })), verCard());
+  }
+  // ---------- 資料庫：名詞解釋、人物、憲法解釋 ----------
+  var dbState = { tab: "terms", q: "", sid: "" };
+  var DB_TABS = [["terms", "名詞"], ["people", "人物"], ["rulings", "憲法解釋"]];
+  function dbRefs(refs) {
+    return (refs || []).map(function (r) { var c = chapter(r[0], r[1]), x = c && section(r[0], r[1], r[2]); return x ? h("a", { class: "pill", href: "#/rd/" + r.join("/"), text: "課文：" + x.title }) : null; });
+  }
+  function dbText(it, tab) {
+    if (tab === "terms") return [it.zh, it.en, it.text, (it.tags || []).join(" ")].join(" ");
+    if (tab === "people") return [it.name, it.en, it.role, (it.theories || []).map(function (t) { return t.t + " " + t.n; }).join(" ")].join(" ");
+    return [it.no, it.title, it.issue, it.holding, it.reason, it.note, it.law].join(" ");
+  }
+  function dbDetail(it, tab) {
+    var box = h("div", { class: "db-dt" });
+    if (tab === "terms") { box.appendChild(h("p", { text: it.text })); }
+    else if (tab === "people") {
+      if (it.role) box.appendChild(h("div", { class: "small", text: it.role }));
+      (it.theories || []).forEach(function (t) { box.appendChild(h("div", { class: "db-th" }, h("b", { text: t.t }), h("p", { text: t.n }), h("div", null, dbRefs(t.refs)))); });
+    } else {
+      [["爭點", it.issue], ["解釋文", it.holding], ["理由", it.reason], ["評析與考點", it.note], ["相關條文", it.law]].forEach(function (f) { if (f[1]) box.appendChild(h("div", { class: "db-f" }, h("b", { text: f[0] }), h("p", { text: f[1] }))); });
+    }
+    box.appendChild(h("div", null, dbRefs(it.refs)));
+    return box;
+  }
+  function viewDb() {
+    var D = KS.db || { terms: [], people: [], rulings: [] }, st = dbState, list = h("div", { class: "rows" });
+    var tab = st.tab, items = (D[tab] || []).filter(function (it) {
+      if (st.sid && it.sid !== st.sid) return false;
+      var q = st.q.trim().toLowerCase(); if (!q) return true;
+      var t = dbText(it, tab).toLowerCase(); return q.split(/\s+/).every(function (w) { return t.indexOf(w) >= 0; });
+    });
+    var title = { terms: function (it) { return it.zh + (it.en ? "（" + it.en + "）" : ""); }, people: function (it) { return it.name + (it.en ? "（" + it.en + "）" : ""); }, rulings: function (it) { return it.no + "　" + it.title; } }[tab];
+    items.forEach(function (it) {
+      list.appendChild(h("details", { class: "db-row" }, h("summary", null, h("span", { class: "db-sub", style: "--c:" + (COL[it.sid] || COL[""]), text: (subj(it.sid) || { name: "" }).name }), h("span", { class: "nm", text: title(it) })), dbDetail(it, tab)));
+    });
+    if (!items.length) list.appendChild(h("div", { class: "empty", text: (D[tab] || []).length ? "沒有符合的項目。" : "這一類還沒有資料，等資料交接後會出現在這裡。" }));
+    var inp = h("input", { class: "fd-in", type: "search", placeholder: "搜尋這一類（空白分隔＝都要有）", value: st.q, oninput: function () { st.q = inp.value; var pos = inp.selectionStart; viewDb(); var n = document.querySelector(".db-q"); if (n) { n.focus(); n.setSelectionRange(pos, pos); } } }); inp.classList.add("db-q");
+    var subIds = []; (D[tab] || []).forEach(function (it) { if (subIds.indexOf(it.sid) < 0) subIds.push(it.sid); });
+    var chips = h("div", { class: "chips" }, DB_TABS.map(function (t) { return h("button", { class: "chip", "aria-pressed": String(tab === t[0]), text: t[1] + " " + (D[t[0]] || []).length, onclick: function () { st.tab = t[0]; st.sid = ""; viewDb(); } }); }));
+    var sch = subIds.length > 1 ? h("div", { class: "chips sm", style: "margin-top:8px" }, subIds.map(function (sid) { return h("button", { class: "chip", "aria-pressed": String(st.sid === sid), text: (subj(sid) || { name: sid }).name, onclick: function () { st.sid = st.sid === sid ? "" : sid; viewDb(); } }); })) : null;
+    show(topbar(), h("h1", { class: "pg-t", text: "資料庫" }), h("div", { class: "card" }, chips, inp, sch), h("div", { class: "card" }, list));
   }
   // ---------- 版本與更新 ----------
   function verNum(v) { var m = /ks-v(\d+)/.exec(v || ""); return m ? +m[1] : 0; }
@@ -662,7 +751,7 @@
         w.items.forEach(function (it) { body.appendChild(wrongBlock(it, undefined)); });
       }
     }
-    show(topbar("#/", "首頁"), h("div", { class: "card" }, h("div", { class: "title", text: s.name }),
+    show(topbar("#/subjects", "科目"), h("div", { class: "card" }, h("div", { class: "title", text: s.name }),
       s.link ? h("a", { class: "link-out", href: s.link, target: "_blank", rel: "noopener", text: "開啟" + s.linkText + " ↗" }) : null, seg, body));
   }
 
@@ -1883,7 +1972,13 @@
     var p = (location.hash || "#/").replace(/^#\/?/, "").split("/").map(decodeURIComponent);
     window.scrollTo(0, 0); vHide();
     app.className = "v-" + (p[0] || "home");
+    var PAGES = { s: 1, c: 1, x: 1, p: 1, g: 1, r: 1, es: 1, rd: 1, rep: 1, sch: 1, print: 1 };
+    setTabbar(PAGES[p[0]] ? null : (p[0] === "subjects" || p[0] === "wrong" || p[0] === "db" || p[0] === "settings" ? p[0] : ""));
     switch (p[0]) {
+      case "subjects": return viewSubjects();
+      case "wrong": return viewWrong();
+      case "db": return viewDb();
+      case "settings": return viewSettings();
       case "s": if (subj(p[1])) return viewSubject(p[1], p[2]); break;
       case "c": if (subj(p[1]) && (p[2] === "_none" || chapter(p[1], p[2]))) return viewChapter(p[1], p[2]); break;
       case "x": if (exam(p[1])) return viewExam(p[1]); break;
@@ -1896,7 +1991,7 @@
       case "sch": return viewSchedule();
       case "print": if (getSet(p[1])) return viewPrint(p[1], p[2]); break;
     }
-    viewHome();
+    setTabbar(""); viewHome();
   }
   window.addEventListener("hashchange", route);
   load(); try { if (localStorage.getItem(SIGK) == null) markSynced(); } catch (e) {} applyTheme(); route(); runInit();

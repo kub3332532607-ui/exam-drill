@@ -94,6 +94,10 @@
       e.questions.forEach(function (q, i) { IDX.push({ k: "q", sid: e.subject, e: e, n: i + 1, q: q, f: fold(qText(q)) }); });
     });
     KS.essays.forEach(function (x) { IDX.push({ k: "e", sid: x.subject, x: x, f: fold(essText(x)) }); });
+    var D = KS.db || {};
+    (D.terms || []).forEach(function (it) { var b = it.zh + (it.en ? "（" + it.en + "）" : "") + "\n" + it.text; IDX.push({ k: "d", sid: it.sid, ttl: "名詞 · " + it.zh, body: b, f: fold(b) }); });
+    (D.people || []).forEach(function (it) { var b = it.name + (it.en ? "（" + it.en + "）" : "") + " " + (it.role || "") + "\n" + (it.theories || []).map(function (t) { return t.t + "：" + t.n; }).join("\n"); IDX.push({ k: "d", sid: it.sid, ttl: "人物 · " + it.name, body: b, f: fold(b) }); });
+    (D.rulings || []).forEach(function (it) { var b = [it.no, it.title, it.issue, it.holding, it.reason, it.note, it.law].filter(Boolean).join("\n"); IDX.push({ k: "d", sid: it.sid, ttl: "憲法解釋 · " + it.no, body: b, f: fold(b) }); });
   }
   // 我的訂正與畫線備註：每次開啟時從本機進度重讀
   function loadNotes() {
@@ -131,8 +135,8 @@
   }
 
   // ---------- 搜尋 ----------
-  var GROUPS = [["p", "課文"], ["q", "題目"], ["e", "申論"], ["n", "我的訂正與畫線"], ["v", "單字"]];
-  var SCOPES = [["all", "全部"], ["p", "課文"], ["q", "題目"], ["e", "申論"], ["n", "我的筆記"], ["v", "單字"]];
+  var GROUPS = [["p", "課文"], ["q", "題目"], ["e", "申論"], ["n", "我的訂正與畫線"], ["d", "資料庫"], ["v", "單字"]];
+  var SCOPES = [["all", "全部"], ["p", "課文"], ["q", "題目"], ["e", "申論"], ["n", "我的筆記"], ["d", "資料庫"], ["v", "單字"]];
   var st = { scope: "all", sid: "" }, last = null, more = {};
   function kindOf(u) { return u.k === "s" ? "p" : u.k; }
   function score(u, terms, cur) {
@@ -153,7 +157,7 @@
     build();
     var needV = st.scope === "v" || (st.scope === "all" && /[a-z]/.test(fold(inp.value)));
     if (needV && !VOC) loadVocab();
-    var pool = IDX.concat(NOTES, VOC || []), cur = curSid(), res = { p: [], q: [], e: [], n: [], v: [] };
+    var pool = IDX.concat(NOTES, VOC || []), cur = curSid(), res = { p: [], q: [], e: [], n: [], d: [], v: [] };
     pool.forEach(function (u, o) {
       var kd = kindOf(u);
       if (st.scope !== "all" && st.scope !== kd) return;
@@ -218,6 +222,7 @@
       case "q": return qText(u.q);
       case "e": return essText(u.x);
       case "n": return u.t;
+      case "d": return u.body;
       default: return (u.d[1] || "") + "　" + (u.d[0] || "");
     }
   }
@@ -234,6 +239,7 @@
       case "p": return u.x.title + " · 第 " + (u.i + 1) + " 段" + (u.g ? " · " + u.g : "");
       case "q": return u.e.short + " 第 " + (u.q.no || u.n) + " 題";
       case "e": return "申論 · " + (u.x.src || "");
+      case "d": return "資料庫 · " + u.ttl;
       case "n": return u.sub === "q" ? u.e.short + " 第 " + (u.q.no || u.n) + " 題・訂正" : u.x.title + " · 畫線";
       default: return u.w;
     }
@@ -307,6 +313,9 @@
       var a = [goBtn("前往該題", "#/p/e:" + u.e.id + "/" + u.n)];
       if (q.ch && q.sec && SEC[u.sid + ":" + q.sec]) a.push(goBtn("對應課文", secHref(u.sid, q.ch, q.sec)));
       acts(a);
+    } else if (u.k === "d") {
+      box.appendChild(h("div", { class: "sp-par", style: "white-space:pre-line" }, hl(u.body, terms)));
+      acts([goBtn("前往資料庫", "#/db"), btn("複製", function () { copy(u.body); }, true)]);
     } else if (u.k === "e") {
       box.appendChild(h("div", { class: "sp-qt" }, hl(u.x.q || "", terms)));
       (u.x.pts || []).forEach(function (p) {
