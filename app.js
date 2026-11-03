@@ -3,7 +3,7 @@
   var KS = window.KS, LET = ["A", "B", "C", "D"];
   var app = document.getElementById("app");
   // 版本號：和 sw.js 的 VER 保持一致，改程式時兩邊一起加一
-  var APP_VER = "ks-v43", APP_DATE = "2026-11-03";
+  var APP_VER = "ks-v44", APP_DATE = "2026-11-03";
 
   // ---------- 儲存 ----------
   var KEY = "ks_v1";
@@ -1387,6 +1387,7 @@
       card.appendChild(h("div", { class: "meter" }, h("i", { style: "width:" + Math.round(hit / Math.max(1, x.pts.length) * 100) + "%" })));
       card.appendChild(list);
       if (x.ref) card.appendChild(h("details", { class: "es-tips", open: "" }, h("summary", { text: "書上的參考回答" }), h("pre", { class: "es-sample", text: x.ref })));
+      if (KS.ref) { var refBox = h("div"); card.appendChild(refBox); KS.ref.mount(x.id, refBox); }
       var oth = h("textarea", { class: "es-ta", rows: "5", placeholder: "第 2 步：貼上上網找到的別人的回答，對照看差在哪。", oninput: function () { e.other = oth.value; clearTimeout(esSaveT); esSaveT = setTimeout(persist, 800); } }); oth.value = e.other || "";
       card.appendChild(h("details", { class: "es-tips", open: e.other ? "" : null }, h("summary", { text: "別人的回答（對照用）" }), oth));
       card.appendChild(h("div", { class: "btns" },

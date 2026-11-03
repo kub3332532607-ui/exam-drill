@@ -11,6 +11,7 @@
   var cfg = { dock: "b", big: 0, top: 0, hist: [] };
   try { var j0 = JSON.parse(localStorage.getItem(LS)); if (j0) cfg = Object.assign(cfg, j0); } catch (e) {}
   function saveCfg() { try { localStorage.setItem(LS, JSON.stringify(cfg)); } catch (e) {} }
+  document.addEventListener("ks-ref-ready", function () { IDX = null; });
 
   // ---------- 工具 ----------
   function h(tag, attrs) {
@@ -93,7 +94,7 @@
     KS.exams.forEach(function (e) {
       e.questions.forEach(function (q, i) { IDX.push({ k: "q", sid: e.subject, e: e, n: i + 1, q: q, f: fold(qText(q)) }); });
     });
-    KS.essays.forEach(function (x) { IDX.push({ k: "e", sid: x.subject, x: x, f: fold(essText(x)) }); });
+    KS.essays.forEach(function (x) { IDX.push({ k: "e", sid: x.subject, x: x, f: fold(essText(x) + (KS.ref ? " " + KS.ref.text(x.id) : "")) }); });
     var D = KS.db || {};
     (D.terms || []).forEach(function (it) { var b = it.zh + (it.en ? "（" + it.en + "）" : "") + "\n" + it.text; IDX.push({ k: "d", sid: it.sid, ttl: "名詞 · " + it.zh, body: b, f: fold(b) }); });
     (D.people || []).forEach(function (it) { var b = it.name + (it.en ? "（" + it.en + "）" : "") + " " + (it.role || "") + "\n" + (it.theories || []).map(function (t) { return t.t + "：" + t.n; }).join("\n"); IDX.push({ k: "d", sid: it.sid, ttl: "人物 · " + it.name, body: b, f: fold(b) }); });

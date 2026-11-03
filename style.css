@@ -483,6 +483,8 @@ body.run-wide .fullov { padding-top: calc(58px + env(safe-area-inset-top, 0)); }
 .es-tips { margin-top: 12px; font-size: 14px; }
 .es-tips summary { cursor: pointer; color: var(--accent); font-weight: 700; }
 .es-tips ol { padding-left: 20px; line-height: 1.8; }
+.es-refimg { display: block; width: 100%; height: auto; margin: 8px 0; border-radius: 6px; }
+.es-refpw { width: 100%; box-sizing: border-box; margin: 8px 0; padding: 10px; font-size: 16px; border: 1px solid var(--line, #ccc); border-radius: 8px; background: var(--card, #fff); color: inherit; }
 .es-sample { white-space: pre-wrap; font-family: var(--serif); font-size: 14px; line-height: 1.8; background: var(--soft); padding: 10px; border-radius: 10px; }
 .es-chk { list-style: none; padding: 0; margin: 6px 0 12px; line-height: 1.9; }
 .es-chk .ok { color: var(--green); } .es-chk .no { color: var(--red); }
