@@ -3,7 +3,7 @@
   var KS = window.KS, LET = ["A", "B", "C", "D"];
   var app = document.getElementById("app");
   // 版本號：和 sw.js 的 VER 保持一致，改程式時兩邊一起加一
-  var APP_VER = "ks-v38", APP_DATE = "2026-11-03";
+  var APP_VER = "ks-v39", APP_DATE = "2026-11-03";
 
   // ---------- 儲存 ----------
   var KEY = "ks_v1";
@@ -198,19 +198,69 @@
   var SC = KS.sched || { days: {}, buf: [], mult: {} };
   function md(d) { var a = d.split("-"); return +a[1] + "/" + +a[2]; }
   function chTicked(key) { return Object.keys(S.plan).some(function (d) { return S.plan[d] && S.plan[d]["ch:" + key]; }); }
+  // 實際速度：讀完的章，實際分鐘 ÷（字數÷200）；有樣本就取平均（限 0.4–1.6 倍），沒有樣本才用 schedule.js 的 mult
+  var paceCache = {}, paceGen = 0;
+  function paceOf(sid) {
+    if (paceCache[sid]) return paceCache[sid];
+    var xs = [];
+    chapters(sid).forEach(function (c) {
+      var secs = c.sections || [], key = sid + ":" + c.id, len = 0, n = 0;
+      secs.forEach(function (x) { var r = S.pos["rd:" + sid + ":" + x.id]; if (r && r.fin) n++; len += paras(x).join("").length; });
+      var m = chMin(key); if (secs.length && n === secs.length && m >= 8 && len > 600) xs.push(m / (len / 200));
+    });
+    var base = (SC.mult || {})[sid] || 1, v = xs.length ? Math.max(0.4, Math.min(1.6, xs.reduce(function (a, b) { return a + b; }, 0) / xs.length)) : base;
+    return (paceCache[sid] = { v: v, n: xs.length, base: base });
+  }
   function chInfo(key) {
     var a = key.split(":"), sid = a[0], cs = chapters(sid), c = cs.filter(function (c) { return c.id === a[1]; })[0]; if (!c) return null;
     var secs = c.sections || [], n = 0, len = 0, nx = null;
     secs.forEach(function (x) { var r = S.pos["rd:" + sid + ":" + x.id]; if (r && r.fin) n++; else if (!nx) nx = x; len += paras(x).join("").length; });
+    var pc = paceOf(sid);
     return { key: key, sid: sid, c: c, no: cs.indexOf(c) + 1, n: n, tot: secs.length, done: (secs.length > 0 && n === secs.length) || chTicked(key),
-      min: Math.max(10, Math.round(len / 200 * ((SC.mult || {})[sid] || 1) / 5) * 5),
+      min: Math.max(10, Math.round(len / 200 * pc.v / 5) * 5), pace: pc,
       href: nx ? "#/rd/" + sid + "/" + c.id + "/" + nx.id : "#/c/" + sid + "/" + c.id };
   }
   function chMin(key) { var m = 0; Object.keys(S.tl).forEach(function (i) { var x = S.tl[i]; if (!x.del && x.k === "ch:" + key) m += x.m; }); return m; }
-  // 每章的預定日與狀態：done 已完成、late 落後、now 今天、todo 之後
+  // 每天可排給「讀章」的分鐘：看最近 7 天（不含今天）有讀的日子平均時數的七成（其餘給單字與刷題），限 80–150；資料不足用 170 分估
+  function readBudget(today) {
+    var d = new Date(today), sum = 0, n = 0;
+    for (var i = 1; i <= 7; i++) { d.setDate(d.getDate() - 1); var m = dayMin(ymd(d)); if (m > 0) { sum += m; n++; } }
+    var avg = n >= 2 ? sum / n : 170;
+    return { avg: Math.round(avg), n: n, b: Math.max(80, Math.min(150, Math.round(avg * 0.7 / 5) * 5)) };
+  }
+  // 重新排程：未讀完的章依原訂順序，從今天起依每天讀章時間往後排；讀完的章（包含提前讀完的）不會再出現在後面。
+  // 今天的章第一次排定後固定（S.plan[今天]._ch），讀完也不會被換掉。緩衝日（週日）不排新章。
+  var planCache = null;
   function schedList(today) {
-    var out = [];
-    Object.keys(SC.days || {}).sort().forEach(function (d) { SC.days[d].forEach(function (k) { var ci = chInfo(k); if (ci) { ci.d = d; ci.st = ci.done ? "done" : d < today ? "late" : d === today ? "now" : "todo"; out.push(ci); } }); });
+    if (planCache && planCache.t === today && planCache.g === paceGen) return planCache.v;
+    var order = [];
+    Object.keys(SC.days || {}).sort().forEach(function (d) { SC.days[d].forEach(function (k) { var ci = chInfo(k); if (ci) { ci.od = d; order.push(ci); } }); });
+    var B = readBudget(today).b, pl = S.plan[today] = S.plan[today] || {}, placed = {}, out = [];
+    function put(ci, d) { ci.d = d; placed[ci.key] = 1; }
+    var fixed = pl._ch ? pl._ch.split(",") : null, todays = [];
+    if (fixed) order.forEach(function (ci) { if (fixed.indexOf(ci.key) >= 0) { put(ci, today); todays.push(ci); } });
+    var d = new Date(today), used = todays.reduce(function (a, c) { return a + (c.done ? 0 : c.min); }, 0), first = true, guard = 0;
+    var rest = order.filter(function (ci) { return !ci.done && !placed[ci.key]; });
+    while (rest.length && guard++ < 120) {
+      var ds = ymd(d), isB = (SC.buf || []).indexOf(ds) >= 0, cap = isB ? 0 : (d.getDay() === 6 ? 0.6 : 1) * B;
+      if (first && fixed) { cap = 0; }   // 今天已經排定，不再追加
+      var cnt = 0;
+      while (rest.length && cap > 0) {
+        var ci = rest[0];
+        if (cnt > 0 && used + ci.min > cap * 1.15) break;
+        put(ci, ds); if (ds === today) todays.push(ci); used += ci.min; cnt++; rest.shift();
+        if (used >= cap) break;
+      }
+      first = false; used = 0; d.setDate(d.getDate() + 1);
+    }
+    if (!fixed && todays.length) { pl._ch = todays.map(function (c) { return c.key; }).join(","); save(); }
+    order.forEach(function (ci) {
+      if (!placed[ci.key]) ci.d = ci.od;   // 讀完的章：留在原訂日期，排程表上顯示完成
+      ci.shift = !ci.done && ci.od < today;
+      ci.st = ci.done ? "done" : ci.d === today ? "now" : "todo";
+      out.push(ci);
+    });
+    planCache = { t: today, g: paceGen, v: out };
     return out;
   }
   function planTasks() {
@@ -228,22 +278,34 @@
     var phase = today < "2026-11-23" ? "A" : today < "2026-12-02" ? "B" : today < "2026-12-05" ? "C" : today === "2026-12-05" ? "X" : daysTo("2027-04-01") > 0 ? 2 : 3;
     if (phase === "A") {
       // 地特前補強：保底＝單字＋今天排的章（讀完整章才算完成，含落後章）；週日緩衝日補落後＋錯題＋國文測驗；加碼＝刷題、英文考卷、作文
-      var L = schedList(today), isBuf = (SC.buf || []).indexOf(today) >= 0 || !(SC.days || {})[today], pl0 = S.plan[today] = S.plan[today] || {}, tch = null;
+      var L = schedList(today), isBuf = (SC.buf || []).indexOf(today) >= 0, pl0 = S.plan[today] = S.plan[today] || {}, todays = [];
       vocab0(20);
       L.forEach(function (ci) {
         var k = "ch:" + ci.key;
-        if (!(ci.d === today || ci.st === "late" || pl0[k])) return;
+        if (!(ci.d === today || pl0[k])) return;
         if (ci.done && !pl0[k]) { pl0[k] = Date.now(); pl0._t = Date.now(); save(); }
-        var late = ci.d < today;
-        if (ci.d === today && !tch) tch = ci;
-        add(k, subj(ci.sid).name + "：第 " + ci.no + " 章" + (late ? "（落後，原訂 " + md(ci.d) + "）" : ""), ci.c.title + "・已讀 " + ci.n + "/" + ci.tot + " 節", ci.href, ci.min, late && !isBuf ? 1 : 0, ci.sid);
+        todays.push(ci);
+        add(k, subj(ci.sid).name + "：第 " + ci.no + " 章" + (ci.shift ? "（原訂 " + md(ci.od) + "）" : ""), ci.c.title + "・已讀 " + ci.n + "/" + ci.tot + " 節・約 " + ci.min + " 分" + (ci.pace.n ? "（依你的速度）" : ""), ci.href, ci.min, 0, ci.sid);
       });
+      // 今天的章都讀完了：往前拉下一章，有力氣再讀（讀完就不會再出現在後面的日子）
+      var allDone = todays.length && todays.every(function (ci) { return ci.done; });
+      if (allDone || (!todays.length && !isBuf)) {
+        var nxt = L.filter(function (ci) { return !ci.done && ci.d > today; })[0];
+        if (nxt) add("ch:" + nxt.key, "提前讀：" + subj(nxt.sid).name + " 第 " + nxt.no + " 章", nxt.c.title + "・原排 " + md(nxt.d) + "，讀完後面就不再排它", nxt.href, nxt.min, 1, nxt.sid);
+      }
       if (isBuf) {
         add("wk", "錯題總複習", wb.tot ? "本週錯題回頭看，" + subj(top).name + " 最多" : "挑本週最弱的一科回頭看", wb.tot ? "#/s/" + top + "/wr" : "#/", 40, 0, top || "");
         add("chn", "國文測驗 15 題", "字音字形、成語、閱讀", "#/s/chn/ex", 25, 0, "chn");
       }
-      if (tch) add("q2", "今天章節的題目", subj(tch.sid).name + "第 " + tch.no + " 章考古題，做完看解析", "#/c/" + tch.sid + "/" + tch.c.id, 30, 1, tch.sid);
+      // 選擇題：12/5 前每章只做約三成（未做優先），其餘留到 7 月；一次最多 25 題
+      var tch = todays.filter(function (ci) { return !ci.done; })[0] || todays[0];
+      if (tch) {
+        var qs = getSet("c:" + tch.sid + ":" + tch.c.id), tot = qs ? qs.items.length : 0, dn = qs ? counts(qs.items).done : 0, quota = Math.min(tot, Math.max(15, Math.round(tot * 0.3))), left = Math.max(0, quota - dn), today25 = Math.min(25, left);
+        if (tot && today25) add("q2", subj(tch.sid).name + " 第 " + tch.no + " 章題目 " + today25 + " 題", "本章共 " + tot + " 題，12/5 前先做約 " + quota + " 題（已做 " + dn + "），其餘留給 7 月高普考", "#/p/c:" + tch.sid + ":" + tch.c.id + "/" + (resumeN("c:" + tch.sid + ":" + tch.c.id, tot) || 1), Math.round(today25 * 1.2 / 5) * 5, 1, tch.sid);
+        else if (!tot) add("q2", "今天章節的題目", "本章沒有對應題目，改做考卷 15 題", "#/s/" + tch.sid + "/ex", 20, 1, tch.sid);
+      }
       add("eng", "英文考卷一份", "單字掌握約 9 成的那份，20–30 題，寫完看本題單字", "#/s/eng/ex", 30, 1, "eng");
+      esDue().slice(0, 1).forEach(function (x) { add("esr", "申論閉卷重寫", x.src + "：兩天前寫過，今天不看書重寫（約 25 分）", "#/es/" + x.id, 25, 1, x.subject); });
       if (dow === 6) add("es", "國文作文一篇", "限時 60 分鐘，寫完拍照或打字存下", "#/s/chn", 60, 1, "chn");
       if (dow === 3) add("es", "作文大綱＋第一段", "挑一題歷屆題目，20 分鐘", "#/s/chn", 20, 1, "chn");
       if (wb.tot && !isBuf) add("wr", "錯題複習", "共 " + wb.tot + " 題，" + subj(top).name + " 最多", "#/s/" + top + "/wr", 20, 1, top);
@@ -256,7 +318,7 @@
       add("rv", "檢討今天的錯題", "看解析、寫訂正", "#/s/" + m[0] + "/wr", 40, 0, m[0]);
       add("eng", "英文 10 題", "保持手感", "#/s/eng/ex", 20, 1, "eng");
       if (wb.tot) add("wr", "其他科錯題", "共 " + wb.tot + " 題", "#/s/" + top + "/wr", 30, 1, top);
-      schedList(today).forEach(function (ci) { if (ci.st === "late") add("ch:" + ci.key, "補讀：" + subj(ci.sid).name + "第 " + ci.no + " 章", ci.c.title + "・已讀 " + ci.n + "/" + ci.tot + " 節", ci.href, ci.min, 1, ci.sid); });
+      schedList(today).forEach(function (ci) { if (!ci.done && ci.d <= today) add("ch:" + ci.key, "補讀：" + subj(ci.sid).name + "第 " + ci.no + " 章", ci.c.title + "・已讀 " + ci.n + "/" + ci.tot + " 節", ci.href, ci.min, 1, ci.sid); });
     } else if (phase === "C") {
       // 收尾：不做新題
       vocab0(20);
@@ -398,7 +460,18 @@
       extra.map(row),
       weekChart(P),
       P.phase === "A" || P.phase === "B" ? h("a", { class: "btn soft", href: "#/sch", text: "排程表・進度回報 ›" }) : null,
+      coachLine(P),
       h("div", { class: "small", text: ok ? "今天及格了，記得按一次雲端同步。" : tip }));
+  }
+  // 依實際紀錄給一句話：讀書量、提前進度、速度比預估快
+  function coachLine(P) {
+    if (P.phase !== "A") return null;
+    var rb = readBudget(P.date), L = schedList(P.date), ahead = L.filter(function (c) { return c.done && c.od > P.date; }).length, bits = [];
+    if (rb.n >= 2) bits.push("最近每天平均讀 " + fmtM(rb.avg) + "，" + (rb.avg >= 150 ? "這樣穩定累積很不容易，繼續保持。" : rb.avg >= 90 ? "有在累積，先求每天都開始。" : "先求開始就好，一點點也算數。"));
+    if (ahead) bits.push("已經提前讀完 " + ahead + " 章，後面的排程已幫你縮短。");
+    var faster = Object.keys(L.reduce(function (m, c) { m[c.sid] = 1; return m; }, {})).filter(function (sid) { var pc = paceOf(sid); return pc.n && pc.v < pc.base * 0.85; }).map(function (sid) { return subj(sid).name; });
+    if (faster.length) bits.push(faster.join("、") + " 你讀得比預估快，已依你的速度重排。");
+    return bits.length ? h("div", { class: "small coach", text: bits.join(" ") }) : null;
   }
   // 最近 7 天各科時數
   function weekChart(P) {
@@ -1144,37 +1217,101 @@
 
   // ---------- 申論 ----------
   var revealed = {};
+  // ---------- 申論作答（老師的三階段：20 分鐘可查資料寫 → 看別人的回答 → 兩天後閉卷重寫） ----------
+  // S.essay[id] = {pts:[勾選], rate, ts, draft, tries:[{ts, mode:"open"|"closed", text, words, min}], other:別人的回答, fix:訂正與心得}
+  // 沒有任何 AI：關鍵字比對、字數、檢查表都在本機算，不花 token。
+  var ES_TARGET = 400, essayTab = {};
+  var ES_TIPS = ["開頭：肯定題目，一行半（把題目換句話說，點出要回答幾件事）", "分段：每個概念自己一段，先寫標題句再展開", "關鍵字寫英文：學者、概念後面括號加英文原文", "相關概念寫越多越好但不離題（什麼都寫不出來就沒有分）", "結尾：湊一行到一行半，收束回題目", "一題 20–25 分鐘，字體端正，目標寫滿 400 字（要翻頁）"];
+  var ES_SAMPLE = "題目：試說明自由主義（liberalism）和保守主義（conservatism）的中心思想及內涵，並比較兩者的差異。\n\n自由主義（liberalism）與保守主義（conservatism）是兩種對比鮮明的意識形態，以下分述之：\n\n自由主義的中心思想是保障個人自由……要項如下：\n1.個人主義（individualism）：……\n2.自由與平等：……\n3.理性：……\n4.容忍與同意：……\n\n保守主義則認為傳統是好的……要項如下：\n1.傳統與實用主義：……\n2.人的不完美性：……\n3.有機論與階級性：……\n4.權威：……\n\n兩者的差異：\n1.…… 2.…… 3.……\n\n以上為自由主義與保守主義之概念與比較。";
+  function wordCount(t) { return (t || "").replace(/\s/g, "").length; }
+  function esCheck(t) {
+    var ps = (t || "").split(/\n+/).map(function (x) { return x.trim(); }).filter(Boolean), en = (t.match(/[A-Za-z][A-Za-z\- ]{2,}/g) || []).length, w = wordCount(t);
+    return [
+      ["字數 " + w + " / " + ES_TARGET, w >= ES_TARGET],
+      ["有分段（" + ps.length + " 段）", ps.length >= 4],
+      ["有英文關鍵字（" + en + " 個）", en >= 3],
+      ["有開頭（第一段 ≤ 70 字）", ps.length > 0 && ps[0].length <= 70],
+      ["有結尾（最後一段 ≤ 70 字）", ps.length > 2 && ps[ps.length - 1].length <= 70]
+    ];
+  }
+  function esKw(x, t) {   // 每個要點：關鍵字命中了幾個
+    return x.pts.map(function (pt) { var hit = (pt.k || []).filter(function (k) { return t.indexOf(k) >= 0; }); return { hit: hit, miss: (pt.k || []).filter(function (k) { return hit.indexOf(k) < 0; }) }; });
+  }
+  function esDue() {   // 寫過一次、滿兩天、還沒閉卷重寫的題目
+    return KS.essays.filter(function (x) { var e = S.essay[x.id], tr = e && e.tries; return tr && tr.length && !tr.some(function (t) { return t.mode === "closed"; }) && Date.now() - tr[0].ts >= 2 * 864e5; });
+  }
+  var esSaveT = null;
   function viewEssay(id) {
     var x = essay(id); if (!x) return go("#/");
     var back = "#/c/" + x.subject + "/" + (x.ch || "_none");
-    var p = S.essay[id] || { pts: [] };
+    var e = S.essay[id] = S.essay[id] || { pts: [] }; e.tries = e.tries || [];
+    var tab = essayTab[id] || "write", closed = e.tries.some(function (t) { return t.mode === "closed"; });
+    var mode = e.mode || (e.tries.length && Date.now() - e.tries[0].ts >= 2 * 864e5 && !closed ? "closed" : "open");
+    function persist() { e.ts = Date.now(); save(); }
+    function setTab(t) { essayTab[id] = t; viewEssay(id); }
     var card = h("div", { class: "card" }, h("div", { class: "eyebrow", text: x.src }), h("div", { class: "qtext", text: x.q }));
-    if (!revealed[id]) {
-      card.appendChild(h("div", { class: "muted", text: "先在紙上寫完，再看骨架核對。" }));
-      card.appendChild(h("div", { class: "btns" }, h("button", { class: "btn", text: "寫完了，看骨架", onclick: function () { revealed[id] = true; viewEssay(id); } })));
-      return show(topbar(back, "回章節"), card);
+    card.appendChild(h("div", { class: "chips", style: "margin:6px 0 10px" },
+      [["write", "✍️ 作答"], ["check", "🔍 對照骨架"], ["note", "📝 訂正與心得"]].map(function (t) { return h("button", { class: "chip", "aria-pressed": String(tab === t[0]), text: t[1], onclick: function () { setTab(t[0]); } }); })));
+    var due = e.tries.length && !closed ? Math.max(0, Math.ceil((e.tries[0].ts + 2 * 864e5 - Date.now()) / 864e5)) : 0;
+    card.appendChild(h("div", { class: "small", style: "margin-bottom:8px", text: !e.tries.length ? "第 1 次：可以查書或網路資料，20 分鐘寫完整一題。" : closed ? "已完成閉卷重寫。" : due ? "第 1 次寫完了。先去看別人的回答；" + due + " 天後閉卷重寫第 2 次。" : "可以閉卷重寫第 2 次了：不查書、不看骨架。" }));
+    if (tab === "write") {
+      var wc = h("span", { class: "es-wc" }), bar = h("i");
+      var ta = h("textarea", { class: "es-ta", placeholder: mode === "closed" ? "閉卷重寫：不要看骨架與書。" : "照老師的模板寫：開頭 → 分段 → 英文關鍵字 → 結尾", rows: "14", oninput: function () { e.draft = ta.value; upd(); clearTimeout(esSaveT); esSaveT = setTimeout(persist, 800); } });
+      function upd() { var n = wordCount(ta.value); wc.textContent = n + " / " + ES_TARGET + " 字"; bar.style.width = Math.min(100, n / ES_TARGET * 100) + "%"; }
+      ta.value = e.draft || ""; upd();
+      var runOn = S.run && S.run.k === "es:" + id;
+      card.appendChild(h("div", { class: "chips sm", style: "margin-bottom:6px" },
+        h("button", { class: "chip", "aria-pressed": String(mode === "open"), text: "看書寫", onclick: function () { e.mode = "open"; persist(); viewEssay(id); } }),
+        h("button", { class: "chip", "aria-pressed": String(mode === "closed"), text: "閉卷重寫", onclick: function () { e.mode = "closed"; persist(); viewEssay(id); } }),
+        h("button", { class: "chip", text: runOn ? "計時中（右上角）" : "⏱ 開始 20 分鐘", onclick: function () { tStart({ id: "es:" + id, t: "申論・" + x.src, sid: x.subject, min: 20, href: "#/es/" + id }, ymd(new Date())); viewEssay(id); } })));
+      card.appendChild(ta);
+      card.appendChild(h("div", { class: "es-meter" }, bar)); card.appendChild(wc);
+      card.appendChild(h("div", { class: "btns" },
+        h("button", { class: "btn", text: "交卷，存成第 " + (e.tries.length + 1) + " 次", onclick: function () {
+          var t = ta.value.trim(); if (!t) { toast("還沒寫內容"); return; }
+          var min = runOn ? Math.round(runMs() / 6e4) : 0; if (runOn) tStop(true);
+          e.tries.push({ ts: Date.now(), mode: mode, text: t, words: wordCount(t), min: min }); e.draft = ""; e.mode = ""; persist(); toast("已存第 " + e.tries.length + " 次（" + wordCount(t) + " 字）"); setTab("check");
+        } })));
+      card.appendChild(h("details", { class: "es-tips" }, h("summary", { text: "老師的寫題模板" }), h("ol", null, ES_TIPS.map(function (t) { return h("li", { text: t }); })), h("pre", { class: "es-sample", text: ES_SAMPLE })));
+    } else if (tab === "check") {
+      var last = e.tries[e.tries.length - 1], txt = last ? last.text : "", kw = esKw(x, txt);
+      if (last) {
+        card.appendChild(h("div", { class: "h2", text: "第 " + e.tries.length + " 次（" + last.words + " 字・" + (last.mode === "closed" ? "閉卷" : "看書") + (last.min ? "・" + last.min + " 分" : "") + "）" }));
+        card.appendChild(h("ul", { class: "es-chk" }, esCheck(txt).map(function (c) { return h("li", { class: c[1] ? "ok" : "no", text: (c[1] ? "✓ " : "✗ ") + c[0] }); })));
+        card.appendChild(h("details", { class: "es-tips" }, h("summary", { text: "我寫的內容" }), h("pre", { class: "es-sample", text: txt })));
+      } else card.appendChild(h("div", { class: "small", text: "還沒交卷。下面是骨架，先自己寫過再看才有用。" }));
+      var hit = 0, list = h("div");
+      x.pts.forEach(function (pt, i) {
+        var auto = !!(last && kw[i].hit.length > 0), on = e.pts && e.pts[i] != null ? e.pts[i] : auto; if (on) hit++;
+        var cb = h("input", { type: "checkbox", id: "pt_" + id + "_" + i, onchange: function (ev) { e.pts = (e.pts || []).slice(); e.pts[i] = ev.target.checked; persist(); viewEssay(id); } }); cb.checked = !!on;
+        var kws = h("div", { class: "kw" }); (pt.k || []).forEach(function (k) { kws.appendChild(h("span", { class: last ? (kw[i].hit.indexOf(k) >= 0 ? "hit" : "miss") : "", text: k })); });
+        list.appendChild(h("div", { class: "pt" }, cb, h("label", { for: "pt_" + id + "_" + i }, h("div", { class: "h", text: pt.h }), kws, pt.n ? h("div", { class: "note", text: pt.n }) : null)));
+      });
+      card.appendChild(h("div", { class: "h2", text: "骨架：寫到 " + hit + " / " + x.pts.length + " 段" }));
+      card.appendChild(h("div", { class: "small", text: last ? "綠色＝你寫到的關鍵字，紅色＝漏掉的。勾選會自動猜，可以手動改。" : "" }));
+      card.appendChild(h("div", { class: "meter" }, h("i", { style: "width:" + Math.round(hit / Math.max(1, x.pts.length) * 100) + "%" })));
+      card.appendChild(list);
+      if (x.ref) card.appendChild(h("details", { class: "es-tips", open: "" }, h("summary", { text: "書上的參考回答" }), h("pre", { class: "es-sample", text: x.ref })));
+      var oth = h("textarea", { class: "es-ta", rows: "5", placeholder: "第 2 步：貼上上網找到的別人的回答，對照看差在哪。", oninput: function () { e.other = oth.value; clearTimeout(esSaveT); esSaveT = setTimeout(persist, 800); } }); oth.value = e.other || "";
+      card.appendChild(h("details", { class: "es-tips", open: e.other ? "" : null }, h("summary", { text: "別人的回答（對照用）" }), oth));
+      card.appendChild(h("div", { class: "btns" },
+        h("button", { class: "btn soft", text: "↩ 回到題目", onclick: function () { setTab("write"); } }),
+        h("button", { class: "btn green", text: "掌握了", onclick: function () { rate(id, "ok"); } }),
+        h("button", { class: "btn red", text: "需加強", onclick: function () { rate(id, "weak"); } })));
+      if (e.rate) card.appendChild(h("div", { class: "small", style: "margin-top:8px", text: "目前標記：" + (e.rate === "ok" ? "掌握" : "需加強") }));
+    } else {
+      var fx = h("textarea", { class: "es-ta", rows: "10", placeholder: "訂正與心得：哪裡漏了、別人怎麼寫、下次怎麼改。", oninput: function () { e.fix = fx.value; clearTimeout(esSaveT); esSaveT = setTimeout(persist, 800); } }); fx.value = e.fix || "";
+      card.appendChild(fx);
+      if (e.tries.length) card.appendChild(h("div", { class: "h2", text: "寫作紀錄" }));
+      e.tries.forEach(function (t, i) {
+        card.appendChild(h("div", { class: "wk-log" }, h("span", { text: "第 " + (i + 1) + " 次　" + md(ymd(new Date(t.ts))) + "　" + t.words + " 字　" + (t.mode === "closed" ? "閉卷" : "看書") }),
+          h("button", { class: "link", text: "刪除", onclick: function () { if (confirm("刪除第 " + (i + 1) + " 次的內容？")) { e.tries.splice(i, 1); persist(); viewEssay(id); } } })));
+      });
     }
-    var hit = x.pts.filter(function (_, i) { return p.pts && p.pts[i]; }).length;
-    card.appendChild(h("div", { class: "h2", text: "寫到 " + hit + " / " + x.pts.length + " 段" }));
-    card.appendChild(h("div", { class: "meter" }, h("i", { style: "width:" + Math.round(hit / x.pts.length * 100) + "%" })));
-    var list = h("div");
-    x.pts.forEach(function (pt, i) {
-      var cb = h("input", { type: "checkbox", id: "pt_" + id + "_" + i, onchange: function (ev) {
-        var cur = S.essay[id] || { pts: [] }; cur.pts = (cur.pts || []).slice(); cur.pts[i] = ev.target.checked; S.essay[id] = cur; save(); viewEssay(id);
-      } });
-      cb.checked = !!(p.pts && p.pts[i]);
-      var kw = h("div", { class: "kw" }); pt.k.forEach(function (k) { kw.appendChild(h("span", { text: k })); });
-      list.appendChild(h("div", { class: "pt" }, cb, h("label", { for: "pt_" + id + "_" + i }, h("div", { class: "h", text: pt.h }), kw, pt.n ? h("div", { class: "note", text: pt.n }) : null)));
-    });
-    card.appendChild(list);
+    var sib = KS.essays.filter(function (y) { return y.subject === x.subject && y.ch === x.ch; }), si = sib.indexOf(x);
     card.appendChild(h("div", { class: "btns" },
-      h("button", { class: "btn green", text: "掌握了", onclick: function () { rate(id, "ok"); } }),
-      h("button", { class: "btn red", text: "需加強", onclick: function () { rate(id, "weak"); } })));
-    if (p.rate) card.appendChild(h("div", { class: "small", style: "margin-top:8px", text: "目前標記：" + (p.rate === "ok" ? "掌握" : "需加強") }));
-    var sib = KS.essays.filter(function (y) { return y.subject === x.subject && y.ch === x.ch; }), i = sib.indexOf(x);
-    card.appendChild(h("div", { class: "btns" },
-      h("button", { class: "btn soft", text: "上一題", disabled: i <= 0, onclick: function () { go("#/es/" + sib[i - 1].id); } }),
-      h("button", { class: "btn soft", text: "下一題", disabled: i >= sib.length - 1, onclick: function () { go("#/es/" + sib[i + 1].id); } })));
+      h("button", { class: "btn soft", text: "上一題", disabled: si <= 0, onclick: function () { go("#/es/" + sib[si - 1].id); } }),
+      h("button", { class: "btn soft", text: "下一題", disabled: si >= sib.length - 1, onclick: function () { go("#/es/" + sib[si + 1].id); } })));
     show(topbar(back, "回章節"), card);
   }
   function rate(id, r) { var cur = S.essay[id] || { pts: [] }; cur.rate = r; cur.ts = Date.now(); S.essay[id] = cur; save(); toast(r === "ok" ? "標記為掌握" : "標記為需加強"); viewEssay(id); }
@@ -1708,7 +1845,7 @@
     Object.keys(subs).forEach(function (sid) {
       var cs = subs[sid];
       lines.push("■ " + subj(sid).name + "：完成 " + cs.filter(function (c) { return c.st === "done"; }).length + "/" + cs.length + " 章");
-      cs.forEach(function (c) { if (c.st !== "todo" || c.n) lines.push("  " + c.key + " 第" + c.no + "章 預定 " + md(c.d) + "｜" + { done: "完成", late: "落後", now: "今天", todo: "未到" }[c.st] + "｜" + c.n + "/" + c.tot + " 節｜實際 " + chMin(c.key) + " 分（估 " + c.min + "）"); });
+      cs.forEach(function (c) { if (c.st !== "todo" || c.n) lines.push("  " + c.key + " 第" + c.no + "章 原訂 " + md(c.od) + "、現排 " + md(c.d) + "｜" + { done: "完成", now: "今天", todo: "未到" }[c.st] + (c.shift ? "（落後）" : "") + "｜" + c.n + "/" + c.tot + " 節｜實際 " + chMin(c.key) + " 分（估 " + c.min + "）"); });
     });
     var w = []; for (var i = 6; i >= 0; i--) { var x = new Date(); x.setDate(x.getDate() - i); var ds = ymd(x); w.push(md(ds) + " " + dayMin(ds) + "分" + ((S.plan[ds] || {})._ok ? "✓" : "")); }
     lines.push("", "最近 7 天：" + w.join("、"));
@@ -1716,13 +1853,15 @@
   }
   function viewSchedule() {
     var today = ymd(new Date()), L = schedList(today), WD = "日一二三四五六", subs = {}, byDay = {};
-    var late = L.filter(function (c) { return c.st === "late"; });
-    L.forEach(function (c) { var o = subs[c.sid] = subs[c.sid] || { d: 0, t: 0, l: 0 }; o.t++; if (c.st === "done") o.d++; if (c.st === "late") o.l++; (byDay[c.d] = byDay[c.d] || []).push(c); });
-    var sum = h("div", { class: "card" }, h("div", { class: "h2", text: late.length ? "落後 " + late.length + " 章" : "沒有落後 👍" }),
+    var late = L.filter(function (c) { return c.shift; }), lastD = L.filter(function (c) { return !c.done; }).map(function (c) { return c.d; }).sort().pop(), rb = readBudget(today);
+    L.forEach(function (c) { var o = subs[c.sid] = subs[c.sid] || { d: 0, t: 0, l: 0 }; o.t++; if (c.st === "done") o.d++; if (c.shift) o.l++; (byDay[c.d] = byDay[c.d] || []).push(c); });
+    var sum = h("div", { class: "card" }, h("div", { class: "h2", text: late.length ? "比原訂慢 " + late.length + " 章，已自動往後排" : "沒有落後 👍" }),
+      h("div", { class: "small", text: "依你近 7 天的讀書量，每天排約 " + rb.b + " 分鐘讀章" + (lastD ? "；照這個速度，全部章節讀完在 " + md(lastD) + "。" : "；所有章都讀完了。") + "提前讀完的章不會再出現在後面。" }),
       Object.keys(subs).map(function (sid) { var o = subs[sid]; return h("div", { class: "sc-sum", style: "--c:" + (COL[sid] || COL[""]) }, h("b", { text: subj(sid).name }), h("span", { text: "　完成 " + o.d + "/" + o.t + " 章" + (o.l ? "・落後 " + o.l : "") })); }),
       h("div", { class: "small", text: "讀完一章的每一節（捲到節末）就算完成。小落後先在週日緩衝日補；連續落後再按下面的按鈕，貼給 Claude 重排。" }),
       h("button", { class: "btn", text: "複製【進度回報】", onclick: function () { copyText(schedReport(today, L)); } }));
     var list = h("div", { class: "card" }), p0 = (SC.from || today).split("-"), d1 = SC.to || today;
+    d1 = lastD && lastD > d1 ? lastD : d1;
     for (var d = new Date(+p0[0], +p0[1] - 1, +p0[2]); ymd(d) <= d1; d.setDate(d.getDate() + 1)) {
       var ds = ymd(d), cs = byDay[ds] || [], buf = (SC.buf || []).indexOf(ds) >= 0;
       list.appendChild(h("div", { class: "sc-day" + (ds === today ? " now" : "") },
@@ -1730,7 +1869,7 @@
         h("div", { class: "sc-cs" }, buf && !cs.length ? h("span", { class: "small", text: "緩衝日：補落後＋錯題＋國文測驗" }) : null,
           cs.map(function (c) {
             return h("a", { class: "sc-c " + c.st, href: c.href, style: "--c:" + (COL[c.sid] || COL[""]) },
-              h("span", { class: "sc-ic", text: { done: "✓", late: "!", now: "▶", todo: "·" }[c.st] }),
+              h("span", { class: "sc-ic", text: c.st === "done" ? "✓" : c.shift ? "!" : c.st === "now" ? "▶" : "·" }),
               h("span", { class: "sc-t", text: subj(c.sid).name + " " + c.no + "　" + c.c.title }),
               h("span", { class: "small", text: c.n + "/" + c.tot }));
           }))));
@@ -1740,6 +1879,7 @@
 
   // ---------- 路由 ----------
   function route() {
+    paceCache = {}; paceGen++;
     var p = (location.hash || "#/").replace(/^#\/?/, "").split("/").map(decodeURIComponent);
     window.scrollTo(0, 0); vHide();
     app.className = "v-" + (p[0] || "home");

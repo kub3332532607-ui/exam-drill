@@ -473,3 +473,18 @@ body.run-wide .fullov { padding-top: calc(58px + env(safe-area-inset-top, 0)); }
 .ttsbar .tb-v { max-width: 120px; font-size: 12px; }
 .ks-ic { display: inline-flex; vertical-align: -0.28em; }
 .sp-fab svg { display: block; margin: 0 auto; }
+.coach { margin: 8px 0 4px; padding: 8px 10px; background: var(--accent-soft); border-radius: 10px; color: var(--ink); line-height: 1.6; }
+
+/* 申論作答 */
+.es-ta { width: 100%; box-sizing: border-box; font: inherit; font-family: var(--serif); font-size: 17px; line-height: 1.9; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--soft); color: var(--ink); resize: vertical; }
+.es-meter { height: 6px; background: var(--soft); border-radius: 3px; overflow: hidden; margin-top: 8px; }
+.es-meter i { display: block; height: 100%; background: var(--green); }
+.es-wc { font-size: 13px; color: var(--ink2); }
+.es-tips { margin-top: 12px; font-size: 14px; }
+.es-tips summary { cursor: pointer; color: var(--accent); font-weight: 700; }
+.es-tips ol { padding-left: 20px; line-height: 1.8; }
+.es-sample { white-space: pre-wrap; font-family: var(--serif); font-size: 14px; line-height: 1.8; background: var(--soft); padding: 10px; border-radius: 10px; }
+.es-chk { list-style: none; padding: 0; margin: 6px 0 12px; line-height: 1.9; }
+.es-chk .ok { color: var(--green); } .es-chk .no { color: var(--red); }
+.kw .hit { background: var(--green-soft); color: var(--green); }
+.kw .miss { background: var(--red-soft); color: var(--red); }
