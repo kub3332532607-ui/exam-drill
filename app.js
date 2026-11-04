@@ -3,7 +3,7 @@
   var KS = window.KS, LET = ["A", "B", "C", "D"];
   var app = document.getElementById("app");
   // 版本號：和 sw.js 的 VER 保持一致，改程式時兩邊一起加一
-  var APP_VER = "ks-v52", APP_DATE = "2026-11-04";
+  var APP_VER = "ks-v53", APP_DATE = "2026-11-04";
 
   // ---------- 儲存 ----------
   var KEY = "ks_v1";
@@ -1574,7 +1574,7 @@
   }
   function renderBlock(b, fill) {
     var fig = h("figure", { class: "fig fig-" + b.kind });
-    if (b.cap) fig.appendChild(h("figcaption", { text: b.cap }));
+    if (b.cap) { if (fill && b.capCell) { var fc = h("figcaption"); fill(fc, b.capCell); fig.appendChild(fc); } else fig.appendChild(h("figcaption", { text: b.cap })); }
     var ix = 0;
     if (b.kind === "svg") {
       var pic = h("div", { class: "svgbox", role: "img", "aria-label": b.alt });
@@ -1612,7 +1612,7 @@
     return fig;
   }
   function boldOf(raw) { var plain = "", bold = []; raw.split("**").forEach(function (t, i) { if (i % 2) bold.push([plain.length, plain.length + t.length]); plain += t; }); return { plain: plain, bold: bold }; }
-  // 表格可畫線：plain＝各格文字以換行串接，cells[格]＝[起點, 長度]；格子元素帶 data-p（段落序號）與 data-po（格子起點）
+  // 表格可畫線：plain＝各格文字以換行串接，cells[格]＝[起點, 長度]；格子元素帶 data-p（段落序號）與 data-po（格子起點）。標題串在最後，舊畫線的位置不會變
   function parsePara(raw) {
     var blk = parseBlock(raw);
     if (blk) {
@@ -1623,6 +1623,7 @@
         blk.cells = [];
         blk.items.forEach(function (it) { it.forEach(function (c, j) { if (j === 1 && !c) return; var o = boldOf(c), st = blk.plain.length; o.bold.forEach(function (x) { blk.bold.push([x[0] + st, x[1] + st]); }); blk.cells.push([st, o.plain.length]); blk.plain += o.plain + "\n"; }); });
       }
+      if (blk.cap) { blk.capCell = [blk.plain.length, blk.cap.length]; blk.plain += blk.cap + "\n"; }
       return blk;
     }
     var kind = "p";
