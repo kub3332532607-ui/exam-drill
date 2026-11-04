@@ -354,6 +354,13 @@
     h("div", { class: "sp-top" }, inp, dockBtn, sizeBtn, closeBtn), scopeRow, subRow, list);
   var fab = h("button", { class: "sp-fab", "aria-label": "開啟搜尋" });
   fab.innerHTML = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10" cy="10" r="7"/><path d="M21 21l-6-6"/></svg>';
+  function railIc(d) { return '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + d + "</svg>"; }
+  var IC_CLOUD = railIc('<path d="M7 18a4 4 0 0 1-.5-8A6 6 0 0 1 18 9.5 4.5 4.5 0 0 1 17.5 18z"/>'), IC_BUSY = railIc('<path d="M12 3a9 9 0 1 1-9 9"/>');
+  var homeBtn = h("button", { class: "sp-fab", "aria-label": "回首頁" });
+  homeBtn.innerHTML = railIc('<path d="M4 11l8-7 8 7v8a1 1 0 0 1-1 1h-4v-6h-6v6H5a1 1 0 0 1-1-1z"/>');
+  var syncBtn = h("button", { class: "sp-fab", "aria-label": "雲端同步" });
+  syncBtn.innerHTML = IC_CLOUD;
+  var rail = h("div", { class: "sp-rail" }, fab, homeBtn, syncBtn);
   var wideMQ = window.matchMedia("(min-width: 860px)");
 
   function chip(label, on, fn, col) {
@@ -408,15 +415,16 @@
     build(); loadNotes(); chips();
     var pre = lastSel && Date.now() - lastSel.ts < 20000 ? lastSel.t : "";
     if (pre) { inp.value = pre; lastSel = null; }
-    panel.classList.add("on"); fab.hidden = true;
+    panel.classList.add("on"); rail.hidden = true;
     layout();
     run();
     if (!wide() || !inp.value) setTimeout(function () { inp.focus(); inp.select(); }, 50);
   }
-  function close() { pushHist(); panel.classList.remove("on"); fab.hidden = false; inp.blur(); layout(); }
+  function close() { pushHist(); panel.classList.remove("on"); rail.hidden = false; inp.blur(); layout(); }
   function route() {
     var pr = /^#\/print/.test(location.hash || "");
-    fab.style.display = pr ? "none" : "";
+    rail.style.display = pr ? "none" : "";
+    homeBtn.hidden = /^#?\/?$/.test(location.hash || "");
     if (pr && isOpen()) close();
     else if (isOpen()) { layout(); if (last) paint(); }   // 換頁後重排；排序加分用的目前科目也跟著變
   }
@@ -435,25 +443,34 @@
   window.addEventListener("resize", function () { fabPlace(); layout(); });
   window.addEventListener("hashchange", route);
 
-  // 浮動鈕：貼右緣，可上下拖動，位置記在本機
+  // 右緣按鈕列（搜尋、首頁、同步）：整列可上下拖動，位置記在本機
   var drag = null;
-  function fabPlace() { var t = cfg.top || Math.round(innerHeight * 0.58); fab.style.top = Math.max(70, Math.min(innerHeight - 110, t)) + "px"; }
-  fab.addEventListener("pointerdown", function (ev) { drag = { y: ev.clientY, t: fab.offsetTop, m: false }; try { fab.setPointerCapture(ev.pointerId); } catch (e) {} });
-  fab.addEventListener("pointermove", function (ev) {
+  function railTop(t) { return Math.max(70, Math.min(innerHeight - rail.offsetHeight - 64, t)); }
+  function fabPlace() { rail.style.top = railTop(cfg.top || Math.round(innerHeight * 0.58)) + "px"; }
+  function act(b) {
+    if (b === fab) open();
+    else if (b === homeBtn) location.hash = "#/";
+    else if (b === syncBtn && window.KSQuick && !syncBtn.classList.contains("busy")) {
+      syncBtn.classList.add("busy"); syncBtn.innerHTML = IC_BUSY;
+      window.KSQuick.sync(function () { syncBtn.classList.remove("busy"); syncBtn.innerHTML = IC_CLOUD; });
+    }
+  }
+  rail.addEventListener("pointerdown", function (ev) { drag = { y: ev.clientY, t: rail.offsetTop, m: false, b: ev.target.closest("button") }; try { rail.setPointerCapture(ev.pointerId); } catch (e) {} });
+  rail.addEventListener("pointermove", function (ev) {
     if (!drag) return; var dy = ev.clientY - drag.y;
     if (Math.abs(dy) > 8) drag.m = true;
-    if (drag.m) fab.style.top = Math.max(70, Math.min(innerHeight - 110, drag.t + dy)) + "px";
+    if (drag.m) rail.style.top = railTop(drag.t + dy) + "px";
   });
-  fab.addEventListener("pointerup", function () {
+  rail.addEventListener("pointerup", function () {
     if (!drag) return;
-    if (drag.m) { cfg.top = fab.offsetTop; saveCfg(); } else open();
+    if (drag.m) { cfg.top = rail.offsetTop; saveCfg(); } else act(drag.b);
     drag = null;
   });
-  fab.addEventListener("pointercancel", function () { drag = null; });
-  fab.addEventListener("keydown", function (ev) { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); open(); } });
+  rail.addEventListener("pointercancel", function () { drag = null; });
+  rail.addEventListener("keydown", function (ev) { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); act(ev.target.closest("button")); } });
 
   document.body.appendChild(panel);
-  document.body.appendChild(fab);
+  document.body.appendChild(rail);
   fabPlace(); route();
   window.KSSearch = { open: open, close: close };
 })();

@@ -3,7 +3,7 @@
   var KS = window.KS, LET = ["A", "B", "C", "D"];
   var app = document.getElementById("app");
   // 版本號：和 sw.js 的 VER 保持一致，改程式時兩邊一起加一
-  var APP_VER = "ks-v50", APP_DATE = "2026-11-04";
+  var APP_VER = "ks-v51", APP_DATE = "2026-11-04";
 
   // ---------- 儲存 ----------
   var KEY = "ks_v1";
@@ -754,13 +754,30 @@
     if (e.status === 0) return "還沒設定權杖";
     return "同步失敗，請確認網路後再試";
   }
-  function doSync(btn) {
+  function doSync(btn, after) {
     if (syncing) return; syncing = true;
+    function fin() { syncing = false; (after || route)(); }
     if (btn) { btn.disabled = true; btn.textContent = "同步中…"; }
     KSSync.sync(S, function (m) { KSSync.FIELDS.forEach(function (k) { S[k] = m[k]; }); migrate(); save(); })
-      .then(function (r) { syncing = false; markSynced(); toast(r.up ? "已同步（有更新上傳）" : "已同步，雲端已是最新"); route(); })
-      .catch(function (e) { syncing = false; toast(syncErr(e)); route(); });
+      .then(function (r) { markSynced(); toast(r.up ? "已同步（有更新上傳）" : "已同步，雲端已是最新"); fin(); })
+      .catch(function (e) { toast(syncErr(e)); fin(); });
   }
+  // 右緣同步鈕（search.js）：合併後 S 的物件都換新了，頁面一定要重畫，才不會寫到舊物件；但要留在原位，不跳回頂端
+  var keepY = null;
+  window.KSQuick = {
+    sync: function (done) {
+      if (syncing) return done();
+      if (!KSSync.cfg().token) { toast("先貼上權杖才能同步"); if (location.hash !== "#/settings") go("#/settings"); return done(); }
+      var at = location.hash;
+      doSync(null, function () {
+        if (location.hash === at) keepY = window.scrollY;
+        var y = keepY;
+        route(); keepY = null;
+        if (y != null) window.scrollTo(0, y);
+        done();
+      });
+    }
+  };
   function syncCard() {
     var c = KSSync.cfg();
     if (!c.token) {
@@ -1835,7 +1852,7 @@
     window.addEventListener("scroll", onScroll, { passive: true });
     setLast("#/rd/" + sid + "/" + cid + "/" + xid, (ci + 1) + "-" + (si + 1) + " " + sec.title, s.name + "・課文");
     // 回到上次讀的段落（讀完的節從頭開始）
-    if (saved && !saved.done && saved.p > 0 && art.children[saved.p]) {
+    if (keepY == null && saved && !saved.done && saved.p > 0 && art.children[saved.p]) {
       requestAnimationFrame(function () {
         var el = art.children[saved.p]; if (!el) return;
         window.scrollTo(0, el.getBoundingClientRect().top + window.scrollY - 70);

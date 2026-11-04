@@ -405,7 +405,12 @@ body.noscroll { overflow: hidden; }
 .sc-ic { flex: none; width: 1em; text-align: center; }
 
 /* ---- 全域搜尋小視窗（search.js，ks-v35） ---- */
-.sp-fab { position: fixed; right: 0; top: 58%; z-index: 7; width: 38px; height: 46px; padding: 0; border: 0; border-radius: 14px 0 0 14px; background: var(--accent); color: #fff; font-size: 18px; line-height: 1; opacity: .8; box-shadow: 0 3px 12px rgba(0,0,0,.22); touch-action: none; cursor: pointer; }
+.sp-rail { position: fixed; right: 0; top: 58%; z-index: 7; display: flex; flex-direction: column; overflow: hidden; border-radius: 14px 0 0 14px; background: var(--accent); opacity: .8; box-shadow: 0 3px 12px rgba(0,0,0,.22); touch-action: none; }
+.sp-rail[hidden] { display: none; }
+.sp-fab { width: 38px; height: 40px; flex: none; padding: 0; border: 0; background: none; color: #fff; font-size: 18px; line-height: 1; cursor: pointer; }
+.sp-fab + .sp-fab { border-top: 1px solid rgba(255,255,255,.28); }
+.sp-fab.busy svg { animation: sp-spin 1s linear infinite; }
+@keyframes sp-spin { to { transform: rotate(360deg); } }
 .sp-fab[hidden] { display: none; }
 .sp { position: fixed; left: 0; right: 0; bottom: 0; z-index: 7; display: none; flex-direction: column; height: 46vh; height: 46dvh; background: var(--card); color: var(--ink); border-top: 1px solid var(--line); border-radius: 18px 18px 0 0; box-shadow: 0 -6px 28px rgba(0,0,0,.2); padding-bottom: env(safe-area-inset-bottom, 0); }
 .sp.on { display: flex; }
@@ -454,9 +459,9 @@ body.noscroll { overflow: hidden; }
   .sp, .sp.top, .sp.big { left: auto; right: 0; top: 0; bottom: 0; height: auto; width: 390px; border: 0; border-left: 1px solid var(--line); border-radius: 0; box-shadow: -6px 0 24px rgba(0,0,0,.12); padding: env(safe-area-inset-top, 0) 0 0; }
   .sp-dock, .sp-size { display: none; }
   body.sp-open { padding-right: 404px; }
-  .sp-fab { top: 50%; }
+  .sp-rail { top: 50%; }
 }
-@media print { .sp, .sp-fab { display: none !important; } }
+@media print { .sp, .sp-rail { display: none !important; } }
 
 /* 首頁鈕、自由計時 */
 .bar-r { display: flex; align-items: center; gap: 14px; }
