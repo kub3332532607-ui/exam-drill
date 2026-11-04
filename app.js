@@ -3,7 +3,7 @@
   var KS = window.KS, LET = ["A", "B", "C", "D"];
   var app = document.getElementById("app");
   // 版本號：和 sw.js 的 VER 保持一致，改程式時兩邊一起加一
-  var APP_VER = "ks-v59", APP_DATE = "2026-11-05";
+  var APP_VER = "ks-v60", APP_DATE = "2026-11-05";
 
   // ---------- 儲存 ----------
   var KEY = "ks_v1";
@@ -378,10 +378,16 @@
     if (phase === "A") {
       // 地特前補強：保底＝單字＋今天排的章（讀完整章才算完成，含落後章）＋輪流的考題（一三五英文考卷，二四六日國文測驗）＋週三作文大綱；週日緩衝日另補落後＋錯題；加碼＝刷題、其他天的英文考卷、週六作文
       var L = schedList(today), isBuf = (SC.buf || []).indexOf(today) >= 0, pl0 = S.plan[today] = S.plan[today] || {}, todays = [];
+      var chFix = pl0._ch ? pl0._ch.split(",") : [];
       vocab0(20);
       L.forEach(function (ci) {
-        var k = "ch:" + ci.key;
-        if (!(ci.d === today || (pl0[k] && !(pl0._bx && pl0._bx[k])))) return;
+        var k = "ch:" + ci.key, inBx = pl0._bx && pl0._bx[k];
+        // 今天之前就讀完的章（不在今天排定的 _ch）不算今天的保底，也不自動打勾；舊版留下的自動勾在這裡清掉。節沒讀滿、只靠打勾算完成的不清，免得那章變回沒讀
+        if (ci.done && chFix.indexOf(ci.key) < 0 && !inBx) {
+          if (pl0[k] && ci.n === ci.tot) { delete pl0[k]; (pl0._u = pl0._u || {})[k] = Date.now(); pl0._t = Date.now(); save(); }
+          if (!pl0[k]) return;
+        }
+        if (!(ci.d === today || (pl0[k] && !inBx))) return;
         if (ci.done && !pl0[k] && !(pl0._nt && pl0._nt[k])) { pl0[k] = Date.now(); pl0._t = Date.now(); save(); }
         todays.push(ci);
         add(k, subj(ci.sid).name + "：第 " + ci.no + " 章" + (ci.shift ? "（原訂 " + md(ci.od) + "）" : ""), ci.c.title + "・已讀 " + ci.n + "/" + ci.tot + " 節・約 " + ci.min + " 分" + (ci.pace.n ? "（依你的速度）" : ""), ci.href, ci.min, 0, ci.sid);
