@@ -3,7 +3,7 @@
   var KS = window.KS, LET = ["A", "B", "C", "D"];
   var app = document.getElementById("app");
   // 版本號：和 sw.js 的 VER 保持一致，改程式時兩邊一起加一
-  var APP_VER = "ks-v60", APP_DATE = "2026-11-05";
+  var APP_VER = "ks-v61", APP_DATE = "2026-11-05";
 
   // ---------- 儲存 ----------
   var KEY = "ks_v1";
@@ -25,8 +25,9 @@
   function hash(t) { var h = 5381; for (var i = 0; i < t.length; i++) h = ((h << 5) + h + t.charCodeAt(i)) | 0; return h; }
   function isDirty() { var c = KSSync.cfg(), v; if (!c.token) return false; try { v = localStorage.getItem(SIGK); } catch (e) { return false; } var now = sig(); return v != null && v !== String(now.length) + ":" + hash(now); }
   function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
+  var updating = false;   // 按更新時本機進度已存好，重新載入不用再提醒
   window.addEventListener("beforeunload", function (ev) {
-    if (isDirty()) { ev.preventDefault(); ev.returnValue = "還沒按雲端同步，確定要離開？"; return ev.returnValue; }
+    if (!updating && isDirty()) { ev.preventDefault(); ev.returnValue = "還沒按雲端同步，確定要離開？"; return ev.returnValue; }
   });
   // 題目字級：小／中／大，全部題目頁共用（S.read.qs，只存本機）
   var QS = [["小", .88], ["中", 1], ["大", 1.2], ["特大", 1.4]];
@@ -775,6 +776,7 @@
       .then(function (t) { var m = /VER\s*=\s*"([^"]+)"/.exec(t); return m ? m[1] : ""; });
   }
   function forceUpdate() {
+    updating = true; save();
     toast("更新中…");
     var jobs = [];
     if (window.caches) jobs.push(caches.keys().then(function (ks) { return Promise.all(ks.map(function (k) { return caches.delete(k); })); }));
