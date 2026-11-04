@@ -3,7 +3,7 @@
   var KS = window.KS, LET = ["A", "B", "C", "D"];
   var app = document.getElementById("app");
   // 版本號：和 sw.js 的 VER 保持一致，改程式時兩邊一起加一
-  var APP_VER = "ks-v46", APP_DATE = "2026-11-04";
+  var APP_VER = "ks-v47", APP_DATE = "2026-11-04";
 
   // ---------- 儲存 ----------
   var KEY = "ks_v1";
@@ -251,13 +251,19 @@
         var ds = ymd(d), w = d.getDay(), dayB = B * (w === 0 || w === 6 ? SC.we || 1.5 : 1), cap = ds <= SC_END || today > EXAM_END ? dayB : 60;
         if (today <= EXAM_END && ds > MOCK_END) break;
         if (first && fixed) { cap = 0; }   // 今天已經排定，不再追加
-        var cnt = 0;
+        var cnt = 0, nSid = {};
         while (rest.length && cap > 0) {
-          var j = 0;   // 下一章塞不下時，往後找幾章有沒有放得下的，避免當天只讀一點
-          if (cnt > 0) { for (j = 0; j < rest.length && j < 8 && used + rest[j].min > cap * 1.15; j++); if (j === rest.length || j === 8) break; }
+          // 下一章塞不下時，往後找放得下的章，避免當天只讀一點；同一科只能選最前面那章（維持章序），每天同科章數不超過 SC.lim（預設 2）
+          var j = -1, seen = {};
+          for (var i = 0; i < rest.length && j < 0; i++) {
+            var sd = rest[i].sid; if (seen[sd]) continue; seen[sd] = 1;
+            var lim = (SC.lim || {})[sd] || 2;
+            if ((nSid[sd] || 0) < lim && (!cnt || used + rest[i].min <= cap * 1.15)) j = i;
+          }
+          if (j < 0) break;
           var ci = rest[j];
           if (apply) { put(ci, ds); if (ds === today) todays.push(ci); }
-          used += ci.min; cnt++; last = ds; rest.splice(j, 1);
+          used += ci.min; cnt++; last = ds; nSid[ci.sid] = (nSid[ci.sid] || 0) + 1; rest.splice(j, 1);
           if (used >= cap) break;
         }
         first = false; used = 0; d.setDate(d.getDate() + 1);
