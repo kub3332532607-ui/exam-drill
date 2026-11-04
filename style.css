@@ -394,6 +394,13 @@ body.noscroll { overflow: hidden; }
 .sc-c { display: flex; align-items: baseline; gap: 6px; color: var(--ink); text-decoration: none; font-size: 14px; border-left: 3px solid var(--c); padding-left: 6px; }
 .sc-t { flex: 1; min-width: 0; }
 .sc-c.done { opacity: .5; }
+.sc-ev { font-size: 14px; font-weight: 700; color: var(--accent); text-decoration: none; }
+.sc-ev.done { opacity: .5; }
+.sc-ev.exam { color: var(--red); }
+.goal { background: var(--accent-soft); border-radius: 12px; padding: 8px 10px; margin: 8px 0; }
+.goal-t { display: flex; justify-content: space-between; font-size: 14px; }
+.goal-b { height: 8px; border-radius: 4px; background: var(--line); margin: 6px 0; overflow: hidden; }
+.goal-b i { display: block; height: 100%; background: var(--accent); }
 .sc-c.late { color: var(--red); font-weight: 700; }
 .sc-ic { flex: none; width: 1em; text-align: center; }
 
