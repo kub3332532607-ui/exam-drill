@@ -3,7 +3,7 @@
   var KS = window.KS, LET = ["A", "B", "C", "D"];
   var app = document.getElementById("app");
   // 版本號：和 sw.js 的 VER 保持一致，改程式時兩邊一起加一
-  var APP_VER = "ks-v58", APP_DATE = "2026-11-04";
+  var APP_VER = "ks-v59", APP_DATE = "2026-11-05";
 
   // ---------- 儲存 ----------
   var KEY = "ks_v1";
@@ -408,9 +408,9 @@
       [["eng", engN, 20], ["chn", chnN, 15]].forEach(function (a) { if (a[1] >= a[2] && !pl1[a[0]] && !(pl1._u && pl1._u[a[0]])) { pl1[a[0]] = Date.now(); pl1._t = Date.now(); save(); } });
       add("eng", "英文考卷一份", "單字掌握約 9 成的那份，20–30 題，寫完看本題單字" + (engN ? "（今天已做 " + engN + " 題）" : ""), "#/s/eng/ex", 30, engDay ? 0 : 1, "eng");
       if (!engDay) add("chn", "國文測驗 15 題", "字音字形、成語、閱讀" + (chnN ? "（今天已做 " + chnN + " 題）" : ""), "#/s/chn/ex", 25, 0, "chn");
-      esDue().slice(0, 1).forEach(function (x) { add("esr", "申論閉卷重寫", x.src + "：兩天前寫過，今天不看書重寫（約 25 分）", "#/es/" + x.id, 25, 1, x.subject); });
-      if (dow === 6) add("es", "國文作文一篇", "限時 60 分鐘，寫完拍照或打字存下", "#/s/chn", 60, 1, "chn");
-      if (dow === 3) add("es", "作文大綱＋第一段", "挑一題歷屆題目，20 分鐘", "#/s/chn", 20, 0, "chn");
+      esDue().slice(0, 1).forEach(function (x) { var wrt = isWriting(x), wm = wrt ? wrInfo(x).min : 25; add("esr", wrt ? "作文第二次" : "申論閉卷重寫", x.src + "：兩天前寫過，今天閉卷重寫（約 " + wm + " 分）", "#/es/" + x.id, wm, 1, x.subject); });
+      if (dow === 6) add("es", "國文作文一篇", "挑一題歷屆題目限時寫完，再交給 Claude 批改", "#/c/chn/c5", 60, 1, "chn");
+      if (dow === 3) add("es", "作文大綱＋第一段", "挑一題歷屆題目，20 分鐘，寫完可以交給 Claude 批改", "#/c/chn/c5", 20, 0, "chn");
       if (wb.tot && !isBuf) add("wr", "錯題複習", "共 " + wb.tot + " 題，" + subj(top).name + " 最多", "#/s/" + top + "/wr", 20, 1, top);
     } else if (phase === "B") {
       // 模擬期：每天一份考卷計時寫，寫完檢討
@@ -683,8 +683,8 @@
     return rows;
   }
   function reportCard() {
-    var rp = pendingReports().length, vn = vwPending().length;
-    return rp + vn ? h("a", { class: "card row rep-card", href: "#/rep" }, h("div", null, h("div", { class: "nm", text: "回報給 Claude" }), h("div", { class: "sub", text: [rp ? rp + " 則訂正等著補進課文" : "", vn ? vn + " 個生字等著補進單字程式" : ""].filter(Boolean).join("・") })), h("span", { class: "go", text: "›" })) : null;
+    var rp = pendingReports().length, vn = vwPending().length, wn = wrPending().length, gn = wrNewGrades().length;
+    return rp + vn + wn + gn ? h("a", { class: "card row rep-card", href: "#/rep" }, h("div", null, h("div", { class: "nm", text: "回報給 Claude" }), h("div", { class: "sub", text: [rp ? rp + " 則訂正等著補進課文" : "", vn ? vn + " 個生字等著補進單字程式" : "", wn ? wn + " 篇作文等著批改" : "", gn ? gn + " 篇作文批改好了" : ""].filter(Boolean).join("・") })), h("span", { class: "go", text: "›" })) : null;
   }
   function viewHome() {
     var L = S.pos.last;
@@ -705,10 +705,10 @@
     })));
     var weak = KS.essays.filter(function (x) { return S.essay[x.id] && S.essay[x.id].rate === "weak"; }), due = esDue();
     var notes = Object.keys(S.notes).filter(function (k) { return (S.notes[k] || "").trim(); }).length;
-    var es = h("div", { class: "card" }, h("div", { class: "h2", text: "申論" }));
+    var es = h("div", { class: "card" }, h("div", { class: "h2", text: "申論與作文" }));
     if (due.length) { es.appendChild(h("div", { class: "small", text: "到期，該閉卷重寫了：" })); due.forEach(function (x) { es.appendChild(h("a", { class: "pill blue", style: "display:inline-block;margin:4px 6px 0 0", href: "#/es/" + x.id, text: subj(x.subject).name + "・" + x.src })); }); }
     if (weak.length) { es.appendChild(h("div", { class: "small", style: "margin-top:8px", text: "標記需加強：" })); weak.forEach(function (x) { es.appendChild(h("a", { class: "pill", style: "display:inline-block;margin:4px 6px 0 0", href: "#/es/" + x.id, text: subj(x.subject).name + "・" + x.src })); }); }
-    if (!due.length && !weak.length) es.appendChild(h("div", { class: "small", text: "沒有需要回頭的申論。" }));
+    if (!due.length && !weak.length) es.appendChild(h("div", { class: "small", text: "沒有需要回頭的申論或作文。" }));
     show(topbar(), h("h1", { class: "pg-t", text: "錯題" }), box, es, h("div", { class: "card" }, h("div", { class: "h2", text: "我的訂正" }), h("div", { class: "small", text: "共寫了 " + notes + " 題訂正。用右緣的搜尋可以一次找出來。" })));
   }
   function viewSettings() {
@@ -933,7 +933,7 @@
       h("a", { class: "btn soft", href: "#/g/" + key, text: "對答案" })])));
     nodes.push(mc);
     if (es.length) {
-      var ec = h("div", { class: "card" }, h("div", { class: "h2", text: "本章申論題" }));
+      var ec = h("div", { class: "card" }, h("div", { class: "h2", text: sid === "chn" ? "本章作文題" : "本章申論題" }));
       var rows = h("div", { class: "rows" });
       es.forEach(function (x) {
         var r = S.essay[x.id] && S.essay[x.id].rate;
@@ -941,7 +941,7 @@
           r === "ok" ? h("span", { class: "pill green", text: "掌握" }) : r === "weak" ? h("span", { class: "pill red", text: "加強" }) : h("span", { class: "go", text: "›" })));
       });
       ec.appendChild(rows);
-      ec.appendChild(h("div", { class: "btns" }, h("a", { class: "btn soft", href: "#/print/" + key + "/es", text: "列印本章申論題" })));
+      ec.appendChild(h("div", { class: "btns" }, h("a", { class: "btn soft", href: "#/print/" + key + "/es", text: sid === "chn" ? "列印本章作文題" : "列印本章申論題" })));
       nodes.push(ec);
     }
     show.apply(null, nodes);
@@ -1497,6 +1497,7 @@
   var esSaveT = null;
   function viewEssay(id) {
     var x = essay(id); if (!x) return go("#/");
+    if (isWriting(x)) return viewWriting(id, x);
     var back = "#/c/" + x.subject + "/" + (x.ch || "_none");
     var e = S.essay[id] = S.essay[id] || { pts: [] }; e.tries = e.tries || [];
     var tab = essayTab[id] || "write", closed = e.tries.some(function (t) { return t.mode === "closed"; });
@@ -1568,6 +1569,197 @@
       h("button", { class: "btn soft", text: "上一題", disabled: si <= 0, onclick: function () { go("#/es/" + sib[si - 1].id); } }),
       h("button", { class: "btn soft", text: "下一題", disabled: si >= sib.length - 1, onclick: function () { go("#/es/" + sib[si + 1].id); } })));
     show(topbar(back, "回章節"), card);
+  }
+  // ---------- 國文作文（ks-v59，和申論分開）：第一次寫 → 別人的作文 → Claude 批改 → 第二次寫 → 再批改 ----------
+  // S.essay[id] = {tries:[{ts, mode, text, words, min, ask, withO, rep:{ts, sent}, seen}], others:[{id, src, text, good, ts}], draft, fix, rate, ts}
+  // 批改由 Claude 用 tools/grade.js 寫進 data/grades.js，鍵是「題目id:該次ts」。解開的名字只存本機（ks_grade_key），不同步。
+  var GR_LS = "ks_grade_key", grOpen = null;
+  var WR_TIPS = ["審題：先圈出題目名稱、必答項目、指定材料。必答項目沒寫到，是最常見的失分原因。", "立意：用一句話寫出全文主張，並回扣引文。", "結構：起（破題）、承（解釋概念）、轉（實例與反思）、合（回到主張，涉及公務時連結公務人員）。", "舉例：實例要具體，寫人、事、結果，不要只列名言。"];
+  function isWriting(x) { return x.subject === "chn"; }
+  function wrInfo(x) {
+    var small = /小作文/.test(x.src), m = x.q.match(/文長(?:限|不超過)?\s*(\d+)\s*字|(\d+)\s*字內/), lim = small && m ? +(m[1] || m[2]) : 0;
+    return { small: small, lim: lim, target: small ? (lim || 300) : 700, min: small ? 20 : 50 };
+  }
+  var NUM_ZH = ["", "一", "二", "三", "四", "五", "六", "七", "八", "九", "十"];
+  function nthZh(k) { return "第" + (NUM_ZH[k] || k) + "次"; }
+  function grDecode(name) {
+    try {
+      var b = atob(KS.grades.blob), k = new TextEncoder().encode(String(name).trim().toLowerCase()), u = new Uint8Array(b.length), i;
+      if (!k.length) return null;
+      for (i = 0; i < b.length; i++) u[i] = b.charCodeAt(i) ^ k[i % k.length];
+      var o = JSON.parse(new TextDecoder().decode(u));
+      return o && o.ok === 1 ? o : null;
+    } catch (e) { return null; }
+  }
+  function grData() {
+    if (grOpen) return grOpen;
+    var s = null; try { s = localStorage.getItem(GR_LS); } catch (e) {}
+    return s ? (grOpen = grDecode(s)) : null;
+  }
+  function grHas(id, t) { return !!(KS.grades && KS.grades.ids && KS.grades.ids[id + ":" + t.ts]); }
+  function grAsk(done) {
+    var inp = h("input", { class: "wr-in", type: "text", placeholder: "輸入名字", autocomplete: "off" }), msg = h("div", { class: "small", style: "min-height:1.5em;margin-top:6px" });
+    function close() { mask.remove(); }
+    function ok() {
+      var o = grDecode(inp.value);
+      if (!o) { msg.textContent = "名字不對喔，再試一次。"; inp.select(); return; }
+      grOpen = o; try { localStorage.setItem(GR_LS, inp.value.trim()); } catch (e) {}
+      close(); done();
+    }
+    inp.addEventListener("keydown", function (ev) { if (ev.key === "Enter") ok(); });
+    var mask = h("div", { class: "gr-mask", onclick: function (ev) { if (ev.target === mask) close(); } },
+      h("div", { class: "gr-box", role: "dialog", "aria-modal": "true" },
+        h("div", { class: "h2", text: "這是誰批改的？" }),
+        h("div", { class: "small", text: "輸入批改老師的名字就能看。每台裝置只問一次。" }),
+        inp, msg,
+        h("div", { class: "btns" }, h("button", { class: "btn", text: "打開批改", onclick: ok }), h("button", { class: "btn soft", text: "取消", onclick: close }))));
+    document.body.appendChild(mask); inp.focus();
+  }
+  function grBody(text) {
+    return h("div", { class: "gr-text" }, String(text).split(/\n+/).map(function (ln) {
+      ln = ln.trim(); if (!ln) return null;
+      if (ln.slice(0, 3) === "## ") return h("div", { class: "h2", text: ln.slice(3) });
+      return h("p", null, inline(ln));
+    }));
+  }
+  // 複製給 Claude 的文字
+  function wrText(x, e, t) {
+    var d = new Date(), day = d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2) + "-" + ("0" + d.getDate()).slice(-2), k = e.tries.indexOf(t) + 1;
+    var lines = ["【作文批改】" + day, "請批改下面這篇作文，用 tools/grade.js 寫進刷題本。", "代號：" + x.id + " " + t.ts, "題目出處：" + x.src + "　這是我" + nthZh(k) + "寫（" + t.words + " 字" + (t.min ? "，" + t.min + " 分鐘" : "") + "，" + (t.mode === "closed" ? "閉卷" : "可查資料") + "）", "", "題目：" + x.q, ""];
+    e.tries.slice(0, k - 1).forEach(function (p, i) { lines.push("〔我" + nthZh(i + 1) + "寫的，代號 " + x.id + " " + p.ts + "，請對照進步與老問題〕", p.text, ""); });
+    lines.push("〔我" + nthZh(k) + "寫的，請批改這篇〕", t.text, "");
+    if ((t.ask || "").trim()) lines.push("〔我想問〕", t.ask.trim(), "");
+    if (t.withO) (e.others || []).filter(function (o) { return (o.text || "").trim(); }).forEach(function (o, i) {
+      lines.push("〔別人的作文 " + (i + 1) + (o.src ? "（" + o.src + "）" : "") + "〕", o.text.trim());
+      if ((o.good || "").trim()) lines.push("我覺得好在：" + o.good.trim());
+      lines.push("");
+    });
+    return lines.join("\n");
+  }
+  function wrWalk(fn) { KS.essays.forEach(function (x) { if (!isWriting(x)) return; var e = S.essay[x.id]; if (e && e.tries) e.tries.forEach(function (t) { fn(x, e, t); }); }); }
+  function wrPending() { var a = []; wrWalk(function (x, e, t) { if (t.rep && !t.rep.sent && !grHas(x.id, t)) a.push({ x: x, e: e, t: t }); }); return a; }
+  function wrNewGrades() { var a = []; wrWalk(function (x, e, t) { if (grHas(x.id, t) && !t.seen) a.push({ x: x, e: e, t: t }); }); return a; }
+  function wrCard() {
+    var ps = wrPending(), ng = wrNewGrades(); if (!ps.length && !ng.length) return null;
+    var box = h("div", { class: "card" }, h("div", { class: "h2", text: "作文" }));
+    ng.forEach(function (a) { box.appendChild(h("a", { class: "row", href: "#/es/" + a.x.id, onclick: function () { essayTab[a.x.id] = "gr"; } }, h("div", null, h("div", { class: "nm", text: "批改好了：" + a.x.src }), h("div", { class: "sub", text: nthZh(a.e.tries.indexOf(a.t) + 1) + "寫的作文，點開看" })), h("span", { class: "go", text: "›" }))); });
+    if (ps.length) box.appendChild(h("div", { class: "small", style: "margin-top:8px", text: "作文比較長，一次送一篇。按複製後貼給 Claude Code。" }));
+    ps.forEach(function (a) {
+      box.appendChild(h("div", { class: "rep-item" },
+        h("div", { class: "q", text: a.x.src + "・" + nthZh(a.e.tries.indexOf(a.t) + 1) }), h("div", { class: "small", text: a.t.words + " 字" }),
+        h("div", { class: "btns" },
+          h("button", { class: "btn", text: "複製給 Claude", onclick: function () { copyText(wrText(a.x, a.e, a.t)); a.t.rep = { ts: Date.now(), sent: true }; a.e.ts = Date.now(); save(); viewReport(); } }),
+          h("button", { class: "btn soft", text: "移出清單", onclick: function () { delete a.t.rep; a.e.ts = Date.now(); save(); viewReport(); } }))));
+    });
+    return box;
+  }
+  function viewWriting(id, x) {
+    var back = "#/c/" + x.subject + "/" + (x.ch || "_none"), info = wrInfo(x);
+    var e = S.essay[id] = S.essay[id] || { pts: [] }; e.tries = e.tries || []; e.others = e.others || [];
+    if ((e.other || "").trim() && !e.others.length) { e.others.push({ id: "o" + Date.now(), src: "之前貼的", text: e.other, good: "", ts: Date.now() }); e.other = ""; e.ts = Date.now(); save(); }
+    var n = e.tries.length, wMax = Math.max(2, n >= 2 ? n + 1 : 2), tab = essayTab[id];
+    var hasDue = n === 1 && Date.now() - e.tries[0].ts >= 2 * 864e5;
+    if (!tab) tab = !n ? "w1" : hasDue ? "w2" : n === 1 && !e.others.length ? "oth" : "gr";
+    function persist() { e.ts = Date.now(); save(); }
+    function setTab(t) { essayTab[id] = t; viewEssay(id); }
+    function later() { clearTimeout(esSaveT); esSaveT = setTimeout(persist, 800); }
+    var card = h("div", { class: "card" }, h("div", { class: "eyebrow", text: "作文・" + x.src }), h("div", { class: "qtext", text: x.q }));
+    var tabs = [["w1", "✍️ 第一次"], ["oth", "📚 別人的作文" + (e.others.length ? "（" + e.others.length + "）" : "")], ["gr", "🖊️ Claude 批改"]];
+    for (var ti = 2; ti <= wMax; ti++) tabs.push(["w" + ti, "✍️ " + nthZh(ti)]);
+    card.appendChild(h("div", { class: "chips", style: "margin:6px 0 10px" }, tabs.map(function (t) { return h("button", { class: "chip", "aria-pressed": String(tab === t[0]), text: t[1], onclick: function () { setTab(t[0]); } }); })));
+    if (tab.charAt(0) === "w") wrWriteTab(+tab.slice(1));
+    else if (tab === "oth") wrOthersTab();
+    else wrGradeTab();
+    var sib = KS.essays.filter(function (y) { return y.subject === x.subject && y.ch === x.ch; }), si = sib.indexOf(x);
+    card.appendChild(h("div", { class: "btns" },
+      h("button", { class: "btn soft", text: "上一題", disabled: si <= 0, onclick: function () { go("#/es/" + sib[si - 1].id); } }),
+      h("button", { class: "btn soft", text: "下一題", disabled: si >= sib.length - 1, onclick: function () { go("#/es/" + sib[si + 1].id); } })));
+    show(topbar(back, "回章節"), card);
+
+    function wrWriteTab(k) {
+      if (k <= n) {
+        var t = e.tries[k - 1];
+        card.appendChild(h("div", { class: "h2", text: nthZh(k) + "（" + md(ymd(new Date(t.ts))) + "・" + t.words + " 字" + (t.min ? "・" + t.min + " 分" : "") + "）" }));
+        card.appendChild(h("pre", { class: "es-sample", text: t.text }));
+        card.appendChild(h("div", { class: "btns" },
+          h("button", { class: "btn soft", text: "看批改", onclick: function () { setTab("gr"); } }),
+          h("button", { class: "btn soft", text: "刪除這次", onclick: function () { if (confirm("刪除" + nthZh(k) + "寫的內容？")) { e.tries.splice(k - 1, 1); persist(); setTab("w" + k); } } })));
+        return;
+      }
+      if (k > n + 1) { card.appendChild(h("div", { class: "small", text: "先寫完" + nthZh(k - 1) + "，再寫這裡。" })); card.appendChild(h("div", { class: "btns" }, h("button", { class: "btn", text: "去寫" + nthZh(k - 1), onclick: function () { setTab("w" + (k - 1)); } }))); return; }
+      var left = k >= 2 ? Math.max(0, Math.ceil((e.tries[0].ts + 2 * 864e5 - Date.now()) / 864e5)) : 0;
+      card.appendChild(h("div", { class: "small", style: "margin-bottom:8px", text: k === 1 ? "先自己寫，可以查資料。大綱和第一段也可以先存。" : "閉卷重寫：不看之前的內容、批改和別人的作文。" + (left && k === 2 ? "建議再隔 " + left + " 天，記憶淡一點效果更好。" : "") }));
+      var wc = h("span", { class: "es-wc" }), bar = h("i");
+      var ta = h("textarea", { class: "es-ta", placeholder: "在這裡寫作文。", rows: "16", oninput: function () { e.draft = ta.value; upd(); later(); } });
+      function upd() {
+        var c = wordCount(ta.value), over = info.lim && c > info.lim;
+        wc.textContent = c + " 字" + (info.lim ? " / 限 " + info.lim + " 字" + (over ? "，超過了" : "") : "，建議約 " + info.target + " 字");
+        wc.style.color = over ? "var(--red)" : ""; bar.style.width = Math.min(100, c / info.target * 100) + "%"; bar.style.background = over ? "var(--red)" : "";
+      }
+      ta.value = e.draft || ""; upd();
+      var runOn = S.run && S.run.k === "es:" + id;
+      card.appendChild(h("div", { class: "chips sm", style: "margin-bottom:6px" },
+        h("button", { class: "chip", text: runOn ? "計時中（右上角）" : "⏱ 開始 " + info.min + " 分鐘", onclick: function () { tStart({ id: "es:" + id, t: "作文・" + x.src, sid: x.subject, min: info.min, href: "#/es/" + id }, ymd(new Date())); viewEssay(id); } })));
+      card.appendChild(ta);
+      card.appendChild(h("div", { class: "es-meter" }, bar)); card.appendChild(wc);
+      card.appendChild(h("div", { class: "btns" }, h("button", { class: "btn", text: "交卷，存成" + nthZh(k), onclick: function () {
+        var txt = ta.value.trim(); if (!txt) { toast("還沒寫內容"); return; }
+        var min = runOn ? Math.round(runMs() / 6e4) : 0; if (runOn) tStop(true);
+        e.tries.push({ ts: Date.now(), mode: k === 1 ? "open" : "closed", text: txt, words: wordCount(txt), min: min }); e.draft = ""; persist();
+        toast("已存" + nthZh(k) + "（" + wordCount(txt) + " 字），寫得好！"); setTab(k === 1 ? "oth" : "gr");
+      } })));
+      card.appendChild(h("details", { class: "es-tips" }, h("summary", { text: "作文怎麼寫" }), h("ol", null, WR_TIPS.map(function (t) { return h("li", { text: t }); }))));
+    }
+
+    function wrOthersTab() {
+      card.appendChild(h("div", { class: "small", style: "margin-bottom:8px", text: "多貼幾篇，看別人怎麼破題、舉什麼例子。按「＋」新增一篇。" }));
+      e.others.forEach(function (o, i) {
+        var src = h("input", { class: "wr-in", type: "text", placeholder: "來源或作者（可不填）", oninput: function () { o.src = src.value; later(); } }); src.value = o.src || "";
+        var txt = h("textarea", { class: "es-ta", rows: "8", placeholder: "貼上別人的作文", oninput: function () { o.text = txt.value; later(); } }); txt.value = o.text || "";
+        var good = h("textarea", { class: "es-ta", rows: "2", placeholder: "好在哪、想學什麼（可不填）", oninput: function () { o.good = good.value; later(); } }); good.value = o.good || "";
+        card.appendChild(h("div", { class: "wr-oth" },
+          h("div", { class: "wr-oth-h" }, h("b", { text: "第 " + (i + 1) + " 篇" }), h("button", { class: "link", text: "刪除", onclick: function () { if (!(o.text || "").trim() || confirm("刪除第 " + (i + 1) + " 篇？")) { e.others.splice(i, 1); persist(); viewEssay(id); } } })),
+          src, txt, good));
+      });
+      card.appendChild(h("div", { class: "btns" },
+        h("button", { class: "btn soft wr-add", text: "＋ 新增一篇", onclick: function () { e.others.push({ id: "o" + Date.now(), src: "", text: "", good: "", ts: Date.now() }); persist(); viewEssay(id); var a = document.querySelectorAll(".wr-oth textarea"); if (a.length > 1) a[a.length - 2].focus(); } }),
+        n ? h("button", { class: "btn", text: "下一步：Claude 批改", onclick: function () { setTab("gr"); } }) : null));
+    }
+
+    function wrGradeTab() {
+      if (!n) { card.appendChild(h("div", { class: "small", text: "先寫第一次，Claude 才有東西可以改。" })); card.appendChild(h("div", { class: "btns" }, h("button", { class: "btn", text: "去寫第一次", onclick: function () { setTab("w1"); } }))); return; }
+      e.tries.forEach(function (t, i) {
+        var box = h("div", { class: "wr-try" }, h("div", { class: "h2", text: nthZh(i + 1) + "（" + md(ymd(new Date(t.ts))) + "・" + t.words + " 字）" }));
+        box.appendChild(h("details", { class: "es-tips" }, h("summary", { text: "我寫的內容" }), h("pre", { class: "es-sample", text: t.text })));
+        if (grHas(id, t)) {
+          var data = grData();
+          if (data && data.g[id + ":" + t.ts]) {
+            box.appendChild(grBody(data.g[id + ":" + t.ts].text));
+            if (!t.seen) { t.seen = Date.now(); persist(); }
+          } else box.appendChild(h("div", { class: "btns" }, h("button", { class: "btn", text: "🔒 看 Claude 的批改", onclick: function () { grAsk(function () { viewEssay(id); }); } })));
+        } else if (t.rep && t.rep.sent) {
+          box.appendChild(h("div", { class: "small", style: "margin-top:8px", text: "已送出，等 Claude 批改。批改好之後重開刷題本就會出現。" }));
+          box.appendChild(h("div", { class: "btns" }, h("button", { class: "btn soft", text: "重新複製", onclick: function () { copyText(wrText(x, e, t)); } })));
+        } else {
+          var ask = h("textarea", { class: "es-ta", rows: "2", placeholder: "想問 Claude 的（可不填）", oninput: function () { t.ask = ask.value; later(); } }); ask.value = t.ask || "";
+          box.appendChild(ask);
+          if (e.others.some(function (o) { return (o.text || "").trim(); })) { var cb = h("input", { type: "checkbox", onchange: function (ev) { t.withO = ev.target.checked; persist(); } }); cb.checked = !!t.withO; box.appendChild(h("label", { class: "rep-ck" }, cb, h("span", { text: "附上別人的作文（比較耗用量）" }))); }
+          box.appendChild(h("div", { class: "btns" },
+            h("button", { class: "btn", text: "📤 複製給 Claude 批改", onclick: function () { copyText(wrText(x, e, t)); t.rep = { ts: Date.now(), sent: true }; persist(); viewEssay(id); } }),
+            t.rep ? h("button", { class: "btn soft", text: "移出回報清單", onclick: function () { delete t.rep; persist(); viewEssay(id); } })
+              : h("button", { class: "btn soft", text: "先放回報清單", onclick: function () { t.rep = { ts: Date.now(), sent: false }; persist(); toast("已放進回報清單"); viewEssay(id); } })));
+        }
+        card.appendChild(box);
+      });
+      card.appendChild(h("div", { class: "btns" }, h("button", { class: "btn", text: "再寫一次：" + nthZh(n + 1), onclick: function () { setTab("w" + (n + 1)); } })));
+      card.appendChild(h("details", { class: "es-tips" }, h("summary", { text: "審題重點（Claude 自行整理，僅供參考）" }), h("ul", null, x.pts.map(function (p) { return h("li", { text: p.h + "：" + (p.k || []).join("、") }); }))));
+      var fx = h("textarea", { class: "es-ta", rows: "4", placeholder: "哪裡漏了、別人怎麼寫、下次怎麼改。", oninput: function () { e.fix = fx.value; later(); } }); fx.value = e.fix || "";
+      card.appendChild(h("details", { class: "es-tips", open: e.fix ? true : null }, h("summary", { text: "我的心得" }), fx));
+      card.appendChild(h("div", { class: "btns" },
+        h("button", { class: "btn green", text: "掌握了", onclick: function () { rate(id, "ok"); } }),
+        h("button", { class: "btn red", text: "需加強", onclick: function () { rate(id, "weak"); } })));
+      if (e.rate) card.appendChild(h("div", { class: "small", style: "margin-top:8px", text: "目前標記：" + (e.rate === "ok" ? "掌握" : "需加強") }));
+    }
   }
   function rate(id, r) { var cur = S.essay[id] || { pts: [] }; cur.rate = r; cur.ts = Date.now(); S.essay[id] = cur; save(); toast(r === "ok" ? "標記為掌握" : "標記為需加強"); viewEssay(id); }
 
@@ -2017,7 +2209,7 @@
     if (!stg && set.items.length) tail.appendChild(h("div", { class: "btns" }, pracBtns(key, set.items.length, true).concat([
       h("a", { class: "btn soft", href: "#/print/" + key, text: "列印本節" }),
       h("a", { class: "btn soft", href: "#/g/" + key, text: "對答案" })])));
-    if (es.length) { var el2 = h("div", { class: "sec-links" }); es.forEach(function (x) { el2.appendChild(h("a", { class: "pill", href: "#/es/" + x.id, text: "申論 " + x.src })); }); tail.appendChild(el2); }
+    if (es.length) { var el2 = h("div", { class: "sec-links" }); es.forEach(function (x) { el2.appendChild(h("a", { class: "pill", href: "#/es/" + x.id, text: (isWriting(x) ? "作文 " : "申論 ") + x.src })); }); tail.appendChild(el2); }
     var nav = h("div", { class: "btns rd-nav" },
       si > 0 ? h("a", { class: "btn soft", href: "#/rd/" + sid + "/" + cid + "/" + secs[si - 1].id, text: "‹ 上一節" }) : h("a", { class: "btn soft", href: "#/c/" + sid + "/" + cid, text: "‹ 章節目錄" }),
       si < secs.length - 1 ? h("a", { class: "btn soft", href: "#/rd/" + sid + "/" + cid + "/" + secs[si + 1].id, text: "下一節 ›" }) : h("a", { class: "btn soft", href: "#/c/" + sid + "/" + cid, text: "本章考古題 ›" }));
@@ -2180,11 +2372,11 @@
   }
   function viewReport() {
     if (vwPending().length && !KS.vocab) vocab(function () { if (location.hash === "#/rep") viewReport(); });
-    var list = pendingReports(), txt = reportText(list), vc = vwCard();
+    var list = pendingReports(), txt = reportText(list), vc = vwCard(), wc = wrCard();
     var card = h("div", { class: "card" }, h("div", { class: "eyebrow", text: "回報給 Claude" }),
       h("div", { class: "title", text: list.length ? list.length + " 則訂正待回報" : "目前沒有要回報的訂正" }),
       h("div", { class: "muted", text: "在題目的訂正或課文備註勾「回報給 Claude」，就會集中到這裡。複製後貼到和 Claude 的對話，Claude 會把內容補進課文。" }));
-    if (!list.length) return show(topbar("#/", "首頁"), vc ? null : card, vc);
+    if (!list.length) return show(topbar("#/", "首頁"), vc || wc ? null : card, wc, vc);
     var big = list.length > REP_MAX_N || txt.length > REP_MAX_C;
     card.appendChild(h("div", { class: "rep-size" + (big ? " warn" : "") },
       h("b", { text: "共 " + list.length + " 則、約 " + txt.length.toLocaleString() + " 字" }),
@@ -2221,7 +2413,7 @@
           } })));
       });
     });
-    show(topbar("#/", "首頁"), card, vc, h("div", { class: "card" }, rows),
+    show(topbar("#/", "首頁"), card, wc, vc, h("div", { class: "card" }, rows),
       h("div", { class: "card" }, h("div", { class: "small", text: "全部要複製的文字（也可以長按自己選取）" }), ta));
   }
 

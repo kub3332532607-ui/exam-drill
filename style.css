@@ -579,3 +579,16 @@ body.tts-pad #app { padding-bottom: 84px; }
 .pin-row { margin-top: 8px; }
 .pin-row .pin-btn { margin-left: 0; }
 .ask-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+
+/* 國文作文（ks-v59） */
+.wr-in { width: 100%; box-sizing: border-box; margin: 8px 0; padding: 10px; font: inherit; font-size: 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: inherit; }
+.wr-oth { padding: 12px 0; border-top: 1px solid var(--line); }
+.wr-oth .es-ta { margin-top: 2px; }
+.wr-oth-h { display: flex; justify-content: space-between; align-items: center; }
+.wr-oth-h .link { background: none; border: 0; font: inherit; font-size: 14px; color: var(--ink2); cursor: pointer; padding: 4px 0; }
+.wr-try { padding: 12px 0; border-top: 2px solid var(--line); }
+.gr-text { font-family: var(--serif); font-size: 16px; line-height: 1.9; margin-top: 10px; padding: 12px; border-radius: 12px; background: var(--accent-soft); }
+.gr-text p { margin: 0 0 10px; }
+.gr-text .h2 { font-family: inherit; margin: 12px 0 4px; }
+.gr-mask { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(0, 0, 0, .45); }
+.gr-box { width: 100%; max-width: 360px; box-sizing: border-box; padding: 20px; border-radius: 16px; background: var(--card); color: var(--ink); }
