@@ -3,7 +3,7 @@
   var KS = window.KS, LET = ["A", "B", "C", "D"];
   var app = document.getElementById("app");
   // 版本號：和 sw.js 的 VER 保持一致，改程式時兩邊一起加一
-  var APP_VER = "ks-v55", APP_DATE = "2026-11-04";
+  var APP_VER = "ks-v56", APP_DATE = "2026-11-04";
 
   // ---------- 儲存 ----------
   var KEY = "ks_v1";
@@ -1761,7 +1761,20 @@
   function clip(t, n) { return t.length > n ? t.slice(0, n) + "…" : t; }
   // ---------- 朗讀（瀏覽器內建語音，免費；Edge 的「Natural」中文語音最自然） ----------
   // 一段一段讀、讀到的段落會標出來；按暫停／上一段／下一段／調速度。設定（速度、聲音）只存本機。
-  var TT = { on: false, i: 0, art: null, utt: null, gen: 0 };
+  // 線上語音剛開始就被取消時，緊接著送出的新句可能永遠不開始（沒有 start、end，也沒有 error）。
+  // 所以取消後隔 TTS_GAP 才送新句；另有看門狗：太久沒開始或沒讀完就取消重試，還是不行就跳下一句。
+  var TT = { on: false, i: 0, art: null, utt: null, gen: 0, wd: 0, dl: 0, cx: 0, paused: false, pp: null, rearm: null };
+  var TTS_GAP = 300, TTS_WAIT = 5000;
+  function ttsPaused(p) {
+    TT.paused = p;
+    if (TT.pp) { TT.pp.textContent = p ? "▶" : "❚❚"; TT.pp.setAttribute("aria-label", p ? "繼續" : "暫停"); }
+  }
+  function ttsCancel() {
+    clearTimeout(TT.wd); clearTimeout(TT.dl); TT.rearm = null;
+    speechSynthesis.resume(); if (TT.paused) ttsPaused(false);   // 暫停中取消，佇列會一直停著，新句讀不出來
+    if (speechSynthesis.speaking || speechSynthesis.pending) TT.cx = Date.now();
+    speechSynthesis.cancel();
+  }
   function ttsVoices() {
     var v = (window.speechSynthesis && speechSynthesis.getVoices()) || [];
     var zh = v.filter(function (x) { return /^zh/i.test(x.lang) || /Chinese|中文|國語|臺灣|台灣/.test(x.name); });
@@ -1783,7 +1796,7 @@
     return out;
   }
   function ttsStop() {
-    TT.on = false; TT.gen++; if (window.speechSynthesis) speechSynthesis.cancel();
+    TT.on = false; TT.gen++; if (window.speechSynthesis) ttsCancel();
     [].forEach.call(document.querySelectorAll(".tts-on"), function (e) { e.classList.remove("tts-on"); });
     var b = document.getElementById("ttsbar"); if (b) b.remove();
     ttsPlace();
@@ -1799,29 +1812,48 @@
     if (window.KSRailTts) window.KSRailTts(mini);
     qPlace();
   }
-  function ttsSpeak(i) {
+  function ttsSpeak(i, auto) {   // auto：上一段自然讀完接著讀，不必取消
     var art = TT.art; if (!art || !document.body.contains(art)) return ttsStop();
     var bl = ttsBlocks(art); TT.gen++; var g = TT.gen;
     while (i < bl.length && !bl[i].t) i++;
     if (i >= bl.length) { ttsStop(); toast("讀完了"); return; }
-    TT.i = i; speechSynthesis.cancel();
+    TT.i = i; if (!auto) ttsCancel();
     [].forEach.call(art.querySelectorAll(".tts-on"), function (e) { e.classList.remove("tts-on"); });
     bl[i].el.classList.add("tts-on");
     var sl = window.getSelection(); if (!sl || sl.isCollapsed) bl[i].el.scrollIntoView({ block: "center", behavior: "smooth" });   // 正在選字時不要把畫面捲走
     var ch = ttsChunks(bl[i].t), k = 0, vs = ttsVoices(), want = S.read.ttsv, voice = vs.filter(function (v) { return v.name === want; })[0] || vs[0];
-    (function next() {
+    function next() {
       if (g !== TT.gen) return;
-      if (k >= ch.length) return ttsSpeak(i + 1);
-      var u = new SpeechSynthesisUtterance(ch[k++]); u.lang = (voice && voice.lang) || "zh-TW"; if (voice) u.voice = voice; u.rate = S.read.ttsr || 1;
-      u.onend = next; u.onerror = function (e) { if (e.error !== "interrupted" && e.error !== "canceled") next(); };
-      TT.utt = u; speechSynthesis.speak(u);
-    })();
+      if (k >= ch.length) return ttsSpeak(i + 1, true);
+      say(ch[k++], 0);
+    }
+    function say(text, tries) {
+      var w = TT.cx + TTS_GAP - Date.now();
+      if (w > 0) { TT.dl = setTimeout(function () { if (g === TT.gen) say(text, tries); }, w); return; }
+      var u = new SpeechSynthesisUtterance(text), started = false; u.lang = (voice && voice.lang) || "zh-TW"; if (voice) u.voice = voice; u.rate = S.read.ttsr || 1;
+      function live() { return g === TT.gen && TT.utt === u; }
+      function stall() {
+        if (!live()) return;
+        ttsCancel(); TT.utt = null;
+        if (tries < 2) return say(text, tries + 1);
+        toast("語音沒有回應，跳到下一句"); next();
+      }
+      function arm() {   // 讀完的時限抓寬：實測約每字 0.25 秒
+        clearTimeout(TT.wd); TT.rearm = arm;
+        if (!TT.paused) TT.wd = setTimeout(stall, started ? (text.length * 0.35 / u.rate + 6) * 1000 : TTS_WAIT);
+      }
+      u.onstart = function () { if (live()) { started = true; arm(); } };
+      u.onend = function () { if (live()) { clearTimeout(TT.wd); next(); } };
+      u.onerror = function (e) { if (live() && e.error !== "interrupted" && e.error !== "canceled") { clearTimeout(TT.wd); next(); } };
+      TT.utt = u; speechSynthesis.speak(u); arm();
+    }
+    next();
   }
   function ttsBar() {
     var old = document.getElementById("ttsbar"); if (old) old.remove();
     var rates = [0.8, 1, 1.25, 1.5, 1.8], vs = ttsVoices();
-    var paused = false;
-    var pp = h("button", { class: "tb", text: "❚❚", "aria-label": "暫停", onclick: function () { if (paused) { speechSynthesis.resume(); paused = false; pp.textContent = "❚❚"; } else { speechSynthesis.pause(); paused = true; pp.textContent = "▶"; } } });
+    var pp = h("button", { class: "tb", text: "❚❚", "aria-label": "暫停", onclick: function () { if (TT.paused) { speechSynthesis.resume(); ttsPaused(false); if (TT.rearm) TT.rearm(); } else { speechSynthesis.pause(); ttsPaused(true); clearTimeout(TT.wd); } } });
+    TT.pp = pp; TT.paused = false;
     var rt = h("button", { class: "tb", text: (S.read.ttsr || 1) + "×", "aria-label": "速度", onclick: function () { var i = (rates.indexOf(S.read.ttsr || 1) + 1) % rates.length; S.read.ttsr = rates[i]; save(); rt.textContent = rates[i] + "×"; ttsSpeak(TT.i); } });
     var vsel = vs.length > 1 ? h("select", { class: "tb tb-v", "aria-label": "聲音", onchange: function () { S.read.ttsv = vsel.value; save(); ttsSpeak(TT.i); } }, vs.map(function (v) { return h("option", { value: v.name, text: v.name.replace(/Microsoft |Google /, "").slice(0, 22), selected: v.name === S.read.ttsv ? "" : null }); })) : null;
     var bar = h("div", { id: "ttsbar", class: "ttsbar" }, h("button", { class: "tb", text: "⏮", "aria-label": "上一段", onclick: function () { ttsSpeak(Math.max(0, TT.i - 1)); } }), pp,
