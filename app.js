@@ -3,7 +3,7 @@
   var KS = window.KS, LET = ["A", "B", "C", "D"];
   var app = document.getElementById("app");
   // 版本號：和 sw.js 的 VER 保持一致，改程式時兩邊一起加一
-  var APP_VER = "ks-v47", APP_DATE = "2026-11-04";
+  var APP_VER = "ks-v48", APP_DATE = "2026-11-04";
 
   // ---------- 儲存 ----------
   var KEY = "ks_v1";
@@ -35,7 +35,15 @@
     var i = (S.read.qs == null ? 1 : S.read.qs);
     return h("button", { class: "link qs-b", "aria-label": "題目字級", text: "字：" + QS[i][0], onclick: function () { S.read.qs = (i + 1) % QS.length; save(); applyQs(); route(); } });
   }
-  function applyTheme() { applyQs(); if (S.theme) document.documentElement.setAttribute("data-theme", S.theme); else document.documentElement.removeAttribute("data-theme"); }
+  function applyTheme() {
+    applyQs();
+    if (S.theme) document.documentElement.setAttribute("data-theme", S.theme); else document.documentElement.removeAttribute("data-theme");
+    // 手機狀態列顏色跟著頁面底色；手動切換主題時，media 版的 meta 不會跟著變，所以另建一條蓋過去
+    var dark = S.theme ? S.theme === "dark" : window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches;
+    var m = document.getElementById("tc-now");
+    if (!m) { m = document.createElement("meta"); m.id = "tc-now"; m.name = "theme-color"; document.head.appendChild(m); }
+    m.content = dark ? "#111319" : "#edf0f5";
+  }
 
   // ---------- 工具 ----------
   function h(tag, attrs) {
