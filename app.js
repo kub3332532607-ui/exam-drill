@@ -3,7 +3,7 @@
   var KS = window.KS, LET = ["A", "B", "C", "D"];
   var app = document.getElementById("app");
   // 版本號：和 sw.js 的 VER 保持一致，改程式時兩邊一起加一
-  var APP_VER = "ks-v48", APP_DATE = "2026-11-04";
+  var APP_VER = "ks-v49", APP_DATE = "2026-11-04";
 
   // ---------- 儲存 ----------
   var KEY = "ks_v1";
@@ -119,7 +119,11 @@
   }
 
   // ---------- 題組（考卷、章節、錯題共用） ----------
-  // key 形式：e:考卷id ｜ c:科目:章id（_none＝未分章）｜ w:科目
+  // key 形式：e:考卷id ｜ c:科目:章id（_none＝未分章）｜ w:科目 ｜ t:科目:章id:階段
+  // 分階段（題目的 st）：1＝地特前要做；地特後＝全部考卷題＋st 2 的題庫題，沒標的題庫題不排。有 st 的科目才分階段，其餘科維持三成
+  var stCache = {};
+  function hasStage(sid) { if (stCache[sid] == null) stCache[sid] = KS.exams.some(function (e) { return e.subject === sid && e.questions.some(function (q) { return q.st; }); }); return stCache[sid]; }
+  function inStage(e, q, st) { return st === 1 ? q.st === 1 : !!q.st || e.id.indexOf("bank") !== 0; }
   function getSet(key) {
     var p = key.split(":"), items = [], title = "", sid, back;
     if (p[0] === "e") {
@@ -131,11 +135,12 @@
     sid = p[1];
     KS.exams.filter(function (e) { return e.subject === sid; }).forEach(function (e) {
       e.questions.forEach(function (q, i) {
-        var hit = p[0] === "c" ? (p[2] === "_none" ? !q.ch : q.ch === p[2] && (!p[3] || q.sec === p[3])) : (stat(e, i + 1) && stat(e, i + 1).last === "w");
+        var hit = p[0] === "t" ? q.ch === p[2] && inStage(e, q, +p[3]) : p[0] === "c" ? (p[2] === "_none" ? !q.ch : q.ch === p[2] && (!p[3] || q.sec === p[3])) : (stat(e, i + 1) && stat(e, i + 1).last === "w");
         if (hit) items.push({ e: e, n: i + 1, q: q });
       });
     });
     if (p[0] === "c" && p[3]) { var sc = section(sid, p[2], p[3]); if (!sc) return null; title = sc.title; back = "#/rd/" + sid + "/" + p[2] + "/" + p[3]; }
+    else if (p[0] === "t") { title = chapter(sid, p[2]).title + (p[3] === "1" ? "・重點題" : "・題目"); back = "#/"; }
     else if (p[0] === "c") { var c = chapter(sid, p[2]); title = c ? c.title : "尚未分章的題目"; back = "#/c/" + sid + "/" + p[2]; }
     else { title = subj(sid).name + " 錯題"; back = "#/s/" + sid + "/wr"; }
     return { key: key, title: title, sid: sid, items: items, back: back };
@@ -206,7 +211,7 @@
   var SC = KS.sched || { days: {}, buf: [], mult: {} };
   var SC_END = SC.to || "2026-11-22", MOCK_END = "2026-12-01", EXAM_END = "2026-12-06";
   // 模擬期：每天一份考卷計時寫，五類輪流
-  var MOCKS = [["con", "法學知識與英文", "憲法、法緒、英文各一份歷屆卷", 60], ["adm", "行政學", "一份地特四等或普考", 60], ["alaw", "行政法", "一份地特四等或普考", 60], ["pol", "政治學", "一份歷屆卷", 60], ["chn", "國文", "測驗＋作文", 90]];
+  var MOCKS = [["con", "法學知識與英文", "憲法做 114、113 地特四等（留給模擬考，第一次 114、第二次 113），法緒、英文各一份歷屆卷", 60], ["adm", "行政學", "一份地特四等或普考", 60], ["alaw", "行政法", "一份地特四等或普考", 60], ["pol", "政治學", "一份歷屆卷", 60], ["chn", "國文", "測驗＋作文", 90]];
   function mockOf(ds) { return MOCKS[Math.round((new Date(ds) - new Date("2026-11-23")) / 864e5) % MOCKS.length]; }
   function md(d) { var a = d.split("-"); return +a[1] + "/" + +a[2]; }
   function chTicked(key) { return Object.keys(S.plan).some(function (d) { return S.plan[d] && S.plan[d]["ch:" + key]; }); }
@@ -315,7 +320,21 @@
       if (!ns) { add("qs", s.name + "：刷 30 題", "課文已讀完一輪", "#/s/" + sid + "/ex", qmin + 15, 0, sid); return; }
       add("rd", s.name + "：讀一節", ns.x.title + (ns.fin ? "（已讀完）" : ns.pc ? "（讀到 " + ns.pc + "%）" : ""), "#/rd/" + sid + "/" + ns.cid + "/" + ns.x.id, min, 0, sid);
       var key = "c:" + sid + ":" + ns.cid + ":" + ns.x.id, st = getSet(key);
-      add("qs", s.name + "：本節題目", st && st.items.length ? "共 " + st.items.length + " 題，做完看解析" : "本節沒有題目，改做考卷 15 題", st && st.items.length ? "#/p/" + key + "/1" : "#/s/" + sid + "/ex", qmin, 0, sid);
+      if (!hasStage(sid)) add("qs", s.name + "：本節題目", st && st.items.length ? "共 " + st.items.length + " 題，做完看解析" : "本節沒有題目，改做考卷 15 題", st && st.items.length ? "#/p/" + key + "/1" : "#/s/" + sid + "/ex", qmin, 0, sid);
+    }
+    // 分階段的科目：每科一項，從第一章還沒做完的接著做。階段一只出讀完的章；階段二依章序
+    function stageTasks(st, max) {
+      KS.subjects.forEach(function (s) {
+        if (!hasStage(s.id)) return;
+        chapters(s.id).some(function (c, i) {
+          if (st === 1 && !chInfo(s.id + ":" + c.id).done) return false;
+          var key = "t:" + s.id + ":" + c.id + ":" + st, set = getSet(key), tot = set.items.length, dn = counts(set.items).done, nx = max < tot - dn ? max : tot - dn;
+          if (!nx) return false;
+          var at = 0; set.items.some(function (it, j) { at = j + 1; return !stat(it.e, it.n); });
+          add("st" + st + ":" + s.id + ":" + c.id, s.name + " 第 " + (i + 1) + " 章" + (st === 1 ? "重點題 " : "題目 ") + nx + " 題", (st === 1 ? "地特前只做這些：本章 " : "高普考：本章 ") + tot + " 題（已做 " + dn + "）", "#/p/" + key + "/" + at, Math.round(nx * 1.2 / 5) * 5, 1, s.id);
+          return true;
+        });
+      });
     }
     var phase = today < "2026-11-23" ? "A" : today < "2026-12-02" ? "B" : today < "2026-12-05" ? "C" : today <= EXAM_END ? "X" : daysTo("2027-04-01") > 0 ? 2 : 3;
     if (phase === "A") {
@@ -340,12 +359,13 @@
         add("chn", "國文測驗 15 題", "字音字形、成語、閱讀", "#/s/chn/ex", 25, 0, "chn");
       }
       // 選擇題：12/5 前每章只做約三成（未做優先），其餘留到 7 月；一次最多 25 題
-      var tch = todays.filter(function (ci) { return !ci.done; })[0] || todays[0];
+      var tchs = todays.filter(function (ci) { return !hasStage(ci.sid); }), tch = tchs.filter(function (ci) { return !ci.done; })[0] || tchs[0];
       if (tch) {
         var qs = getSet("c:" + tch.sid + ":" + tch.c.id), tot = qs ? qs.items.length : 0, dn = qs ? counts(qs.items).done : 0, quota = Math.min(tot, Math.max(15, Math.round(tot * 0.3))), left = Math.max(0, quota - dn), today25 = Math.min(25, left);
         if (tot && today25) add("q2", subj(tch.sid).name + " 第 " + tch.no + " 章題目 " + today25 + " 題", "本章共 " + tot + " 題，12/5 前先做約 " + quota + " 題（已做 " + dn + "），其餘留給 7 月高普考", "#/p/c:" + tch.sid + ":" + tch.c.id + "/" + (resumeN("c:" + tch.sid + ":" + tch.c.id, tot) || 1), Math.round(today25 * 1.2 / 5) * 5, 1, tch.sid);
         else if (!tot) add("q2", "今天章節的題目", "本章沒有對應題目，改做考卷 15 題", "#/s/" + tch.sid + "/ex", 20, 1, tch.sid);
       }
+      stageTasks(1, 25);
       add("eng", "英文考卷一份", "單字掌握約 9 成的那份，20–30 題，寫完看本題單字", "#/s/eng/ex", 30, 1, "eng");
       esDue().slice(0, 1).forEach(function (x) { add("esr", "申論閉卷重寫", x.src + "：兩天前寫過，今天不看書重寫（約 25 分）", "#/es/" + x.id, 25, 1, x.subject); });
       if (dow === 6) add("es", "國文作文一篇", "限時 60 分鐘，寫完拍照或打字存下", "#/s/chn", 60, 1, "chn");
@@ -357,6 +377,7 @@
       vocab0(20);
       add("mk", m[1] + " 模擬考", m[2] + "，計時寫完再對答案", "#/s/" + m[0] + "/ex", m[3], 0, m[0]);
       add("rv", "檢討今天的錯題", "看解析、寫訂正", "#/s/" + m[0] + "/wr", 40, 0, m[0]);
+      stageTasks(1, 25);
       add("eng", "英文 10 題", "保持手感", "#/s/eng/ex", 20, 1, "eng");
       if (wb.tot) add("wr", "其他科錯題", "共 " + wb.tot + " 題", "#/s/" + top + "/wr", 30, 1, top);
       schedList(today).forEach(function (ci) { if (!ci.done && ci.d <= today) add("ch:" + ci.key, "補讀：" + subj(ci.sid).name + "第 " + ci.no + " 章", ci.c.title + "・已讀 " + ci.n + "/" + ci.tot + " 節", ci.href, ci.min, 1, ci.sid); });
@@ -374,6 +395,7 @@
         else readSec(sid, 40, 25);
         if (phase === 2 && (sid === "pol" || sid === "adm")) add("es", subj(sid).name + " 申論 1 題", "寫骨架或默寫架構", "#/s/" + sid, 40, 1, sid);
       } else add("wk", "週日總複習", "挑本週最弱的一科回頭看", "#/", 60, 0, "");
+      if (phase === 2) stageTasks(2, 15);
       if (wb.tot) add("wr", "錯題複習", "共 " + wb.tot + " 題", "#/s/" + top + "/wr", 20, 1, top);
     }
     return { date: today, phase: phase, tasks: T };
@@ -405,7 +427,7 @@
   }
   // 做題時間：章計時進行中，停在章節題目頁（#/p/c:…）的毫秒另外累計（r.q），結束時記成 chq:，不算進讀章速度，但仍算進當天讀書時間
   function qFlush() { var r = S.run; if (r && r.qt) { if (r.t0) r.q = (r.q || 0) + Date.now() - r.qt; r.qt = null; } }
-  function qMark() { var r = S.run; if (!r || r.k.indexOf("ch:")) return; qFlush(); if (r.t0 && /^#\/p\/c:/.test(location.hash)) r.qt = Date.now(); }
+  function qMark() { var r = S.run; if (!r || r.k.indexOf("ch:")) return; qFlush(); if (r.t0 && /^#\/p\/[ct]:/.test(location.hash)) r.qt = Date.now(); }
   window.addEventListener("hashchange", qMark);
   function tPause() { var r = S.run; if (!r || !r.t0) return; qFlush(); r.acc += Date.now() - r.t0; r.t0 = null; r.p = 1; save(); runBar(); }
   function tResume() { var r = S.run; if (!r) return; r.t0 = Date.now(); r.p = 0; r.away = null; qMark(); save(); runBar(); }
