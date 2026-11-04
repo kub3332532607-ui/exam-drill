@@ -3,7 +3,7 @@
   var KS = window.KS, LET = ["A", "B", "C", "D"];
   var app = document.getElementById("app");
   // 版本號：和 sw.js 的 VER 保持一致，改程式時兩邊一起加一
-  var APP_VER = "ks-v56", APP_DATE = "2026-11-04";
+  var APP_VER = "ks-v57", APP_DATE = "2026-11-04";
 
   // ---------- 儲存 ----------
   var KEY = "ks_v1";
@@ -1579,6 +1579,8 @@
     }
     var s = /^::svg (\S+) ?(.*)$/.exec(lines[0]);
     if (s) return { kind: "svg", key: s[1], cap: s[2], alt: lines.slice(1).join(" "), items: [] };
+    var v = /^::video (\S+) ?(.*)$/.exec(lines[0]);   // 影片："::video 檔名 標題\n文字說明"，檔案在 data/video/（檔名.mp4、檔名.jpg）
+    if (v) return { kind: "video", key: v[1], cap: v[2], alt: lines.slice(1).join(" "), items: [] };
     var m = /^::(flow|timeline|match|sort) ?(.*)$/.exec(lines[0]);
     if (m && m[1] === "sort") return { kind: "sort", cap: m[2], items: lines.slice(1).filter(Boolean).map(function (l) { return l.split("｜"); }) };
     if (m) return { kind: m[1], cap: m[2], items: lines.slice(1).filter(Boolean).map(function (l) { var i = l.indexOf("｜"); return i < 0 ? [l, ""] : [l.slice(0, i), l.slice(i + 1)]; }) };
@@ -1685,6 +1687,10 @@
       var pic = h("div", { class: "svgbox", role: "img", "aria-label": b.alt });
       pic.innerHTML = (KS.figs && KS.figs[b.key]) || "";
       fig.appendChild(pic);
+    } else if (b.kind === "video") {
+      var vsrc = "data/video/" + b.key + ".mp4";
+      fig.appendChild(h("video", { class: "vid", src: vsrc, poster: "data/video/" + b.key + ".jpg", controls: true, playsinline: true, preload: "none", "aria-label": b.alt, onplay: function () { if (TT.on) ttsStop(); } }));
+      fig.appendChild(h("a", { class: "vid-link", href: vsrc, target: "_blank", rel: "noopener", text: "播不了？開新頁面看" }));
     } else if (b.kind === "table") {
       var tb = h("table"), thead = h("thead"), tbody = h("tbody");
       b.rows.forEach(function (r, i) {
@@ -1785,7 +1791,7 @@
     return [].map.call(art.children, function (el) {
       var t = el.tagName === "FIGURE" ? (/fig-table/.test(el.className) ? ((el.querySelector("figcaption") || {}).textContent ? "表格：" + el.querySelector("figcaption").textContent : "") : el.textContent) : el.textContent;
       if (/fig-svg/.test(el.className)) t = el.querySelector(".svgbox").getAttribute("aria-label");
-      if (/fig-match|fig-sort/.test(el.className)) t = "";   // 連連看、分類題是洗牌過的選項，不朗讀
+      if (/fig-match|fig-sort|fig-video/.test(el.className)) t = "";   // 連連看、分類題是洗牌過的選項，影片自己有聲音，都不朗讀
       return { el: el, t: (t || "").replace(/\s+/g, " ").trim() };
     });
   }
@@ -1989,7 +1995,7 @@
         h("span", { class: "chips sm" }, h("button", { class: "chip", text: "🔊 朗讀", onclick: function () { ttsStart(art, 0); } }), fsChip("小", 16), fsChip("中", 18), fsChip("大", 20))),
       h("div", { class: "small", text: "長按選字，就能畫重點或寫備註。點畫過的字可修改。🔊 朗讀：連點兩下某段可從那段開始讀。" }));
     paint();
-    art.addEventListener("dblclick", function (ev) { if (ev.target.closest && ev.target.closest(".fig-match, .fig-sort")) return; var w = window.getSelection(); if (w) w.removeAllRanges(); var c = ev.target.closest ? ev.target.closest(".art > *") : null; if (!c) return; var i = [].indexOf.call(art.children, c); if (i >= 0) ttsStart(art, i); });
+    art.addEventListener("dblclick", function (ev) { if (ev.target.closest && ev.target.closest(".fig-match, .fig-sort, .fig-video")) return; var w = window.getSelection(); if (w) w.removeAllRanges(); var c = ev.target.closest ? ev.target.closest(".art > *") : null; if (!c) return; var i = [].indexOf.call(art.children, c); if (i >= 0) ttsStart(art, i); });
     // 分階段的科目：主按鈕是本節該階段的題，全部題目放在旁邊
     var stg = hasStage(sid) ? stageNow() : 0, tk = "t:" + sid + ":" + cid + ":" + stg + ":" + xid, ts = stg ? getSet(tk) : null, tn = ts ? ts.items.length : 0;
     var tail = h("div", { class: "card" }, h("div", { class: "h2", text: "讀完這節，寫考古題" }),

@@ -223,6 +223,8 @@ details.psg > summary { cursor: pointer; color: var(--accent); font-size: 14px; 
   .flow .arrow { align-self: center; width: 18px; height: 2px; margin: 0 10px 0 4px; flex: 0 0 auto; }
   .flow .arrow::after { left: auto; right: -6px; bottom: -5px; border: 6px solid transparent; border-left-color: var(--ink2); border-right: 0; }
 }
+.vid { display: block; width: 100%; max-width: 280px; max-height: 70vh; margin: 0 auto; border-radius: 12px; background: #000; }
+.vid-link { display: block; margin-top: 6px; font-family: var(--sans); font-size: 13px; text-align: center; color: var(--ink2); }
 .svgbox { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 8px; }
 .svgbox svg { display: block; width: 100%; max-width: 560px; height: auto; margin: 0 auto; font-family: var(--sans); }
 .svgbox text { text-anchor: middle; font-size: 16px; fill: var(--ink); }

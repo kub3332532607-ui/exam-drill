@@ -58,10 +58,10 @@
   var IDX = null, SEC = {}, NOTES = [], VOC = null, vState = 0;   // vState：0 未載入、1 載入中、2 完成、3 失敗
   function plain(raw) {
     var t = String(raw), g = "";
-    if (/^(表｜|\| |::flow|::timeline|::match|::sort|::svg)/.test(t)) {
+    if (/^(表｜|\| |::flow|::timeline|::match|::sort|::svg|::video)/.test(t)) {
       t = t.split("\n").filter(function (l) { return !/^\|[\s:|-]+\|?$/.test(l); }).map(function (l) {
         if (l.slice(0, 2) === "表｜") return l.slice(2);
-        var s = /^::svg \S+ ?(.*)$/.exec(l); if (s) return s[1];
+        var s = /^::(?:svg|video) \S+ ?(.*)$/.exec(l); if (s) return s[1];
         var m = /^::(flow|timeline|match|sort) ?(.*)$/.exec(l); if (m) return m[2];
         if (/^\|/.test(l)) return l.replace(/^\|/, "").replace(/\|\s*$/, "").split("|").map(function (s) { return s.trim(); }).join(" ｜ ");
         return l;
