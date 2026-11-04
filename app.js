@@ -3,7 +3,7 @@
   var KS = window.KS, LET = ["A", "B", "C", "D"];
   var app = document.getElementById("app");
   // 版本號：和 sw.js 的 VER 保持一致，改程式時兩邊一起加一
-  var APP_VER = "ks-v54", APP_DATE = "2026-11-04";
+  var APP_VER = "ks-v55", APP_DATE = "2026-11-04";
 
   // ---------- 儲存 ----------
   var KEY = "ks_v1";
@@ -79,6 +79,19 @@
     var k = qid(e, n), s = S.stats[k] || { w: 0, c: 0 };
     if (ok) s.c++; else s.w++; s.last = ok ? "c" : "w"; s.ts = Date.now(); S.stats[k] = s;
   }
+  // 錯題本：最後一次答錯，或自己按「加入錯題本」（stats 的 pin，跟著答題紀錄同步；答對也留著，要自己移出）
+  function isWrong(st) { return !!st && (st.last === "w" || !!st.pin); }
+  function pinBtn(it) {
+    var k = qid(it.e, it.n), b = h("button", { class: "link pin-btn", onclick: function () {
+      var s = S.stats[k] = S.stats[k] || { w: 0, c: 0 };
+      if (s.pin) { delete s.pin; toast(s.last === "w" ? "已取消；這題上次答錯，答對後才會離開錯題本" : "已移出錯題本"); }
+      else { s.pin = Date.now(); toast("已加入錯題本，答對也會留著"); }
+      s.ts = Date.now(); save(); paint(); b.blur();
+    } });
+    function paint() { var s = S.stats[k]; b.textContent = s && s.pin ? "★ 在錯題本中・按一下移出" : s && s.last === "w" ? "☆ 答對後也留在錯題本" : "☆ 加入錯題本"; }
+    paint();
+    return b;
+  }
   function search(q) { return "https://www.google.com/search?q=" + encodeURIComponent("阿摩 " + q.q.slice(0, 40)); }
   function topbar(back, label) {
     var next = S.theme === "dark" ? "light" : S.theme === "light" ? "" : "dark";
@@ -136,7 +149,7 @@
     sid = p[1];
     KS.exams.filter(function (e) { return e.subject === sid; }).forEach(function (e) {
       e.questions.forEach(function (q, i) {
-        var hit = p[0] === "t" ? q.ch === p[2] && inStage(e, q, +p[3]) && (!p[4] || q.sec === p[4]) : p[0] === "c" ? (p[2] === "_none" ? !q.ch : q.ch === p[2] && (!p[3] || q.sec === p[3])) : (stat(e, i + 1) && stat(e, i + 1).last === "w");
+        var hit = p[0] === "t" ? q.ch === p[2] && inStage(e, q, +p[3]) && (!p[4] || q.sec === p[4]) : p[0] === "c" ? (p[2] === "_none" ? !q.ch : q.ch === p[2] && (!p[3] || q.sec === p[3])) : isWrong(stat(e, i + 1));
         if (hit) items.push({ e: e, n: i + 1, q: q });
       });
     });
@@ -205,7 +218,7 @@
   }
   function wrongBySubject() {
     var m = {}, tot = 0;
-    KS.exams.forEach(function (e) { e.questions.forEach(function (q, i) { var st = stat(e, i + 1); if (st && st.last === "w") { m[e.subject] = (m[e.subject] || 0) + 1; tot++; } }); });
+    KS.exams.forEach(function (e) { e.questions.forEach(function (q, i) { var st = stat(e, i + 1); if (isWrong(st)) { m[e.subject] = (m[e.subject] || 0) + 1; tot++; } }); });
     return { m: m, tot: tot };
   }
   // ---------- 讀章排程（data/schedule.js，以章為單位；讀完整章才算完成） ----------
@@ -228,6 +241,17 @@
     });
     var base = (SC.mult || {})[sid] || 1, v = xs.length ? Math.max(0.4, Math.min(1.6, xs.reduce(function (a, b) { return a + b; }, 0) / xs.length)) : base;
     return (paceCache[sid] = { v: v, n: xs.length, base: base });
+  }
+  // 手動標記或取消已讀。取消時連該章的打勾一起清掉（章任務打勾也算讀完），nofin 讓這節不再自動算已讀。
+  function setFin(sid, cid, xid, on) {
+    var k = "rd:" + sid + ":" + xid, o = S.pos[k] || {};
+    setPos(k, Object.assign({}, o, on ? { fin: true, nofin: undefined } : { fin: undefined, nofin: true, pc: o.pc === 100 ? 99 : o.pc }));
+    if (!on) {
+      var id = "ch:" + sid + ":" + cid;
+      Object.keys(S.plan).forEach(function (d) { var pl = S.plan[d]; if (pl && pl[id]) { delete pl[id]; (pl._u = pl._u || {})[id] = Date.now(); pl._t = Date.now(); } });
+      save();
+    }
+    paceCache = {}; paceGen++;
   }
   function chInfo(key) {
     var a = key.split(":"), sid = a[0], cs = chapters(sid), c = cs.filter(function (c) { return c.id === a[1]; })[0]; if (!c) return null;
@@ -350,8 +374,8 @@
       vocab0(20);
       L.forEach(function (ci) {
         var k = "ch:" + ci.key;
-        if (!(ci.d === today || pl0[k])) return;
-        if (ci.done && !pl0[k]) { pl0[k] = Date.now(); pl0._t = Date.now(); save(); }
+        if (!(ci.d === today || (pl0[k] && !(pl0._bx && pl0._bx[k])))) return;
+        if (ci.done && !pl0[k] && !(pl0._nt && pl0._nt[k])) { pl0[k] = Date.now(); pl0._t = Date.now(); save(); }
         todays.push(ci);
         add(k, subj(ci.sid).name + "：第 " + ci.no + " 章" + (ci.shift ? "（原訂 " + md(ci.od) + "）" : ""), ci.c.title + "・已讀 " + ci.n + "/" + ci.tot + " 節・約 " + ci.min + " 分" + (ci.pace.n ? "（依你的速度）" : ""), ci.href, ci.min, 0, ci.sid);
       });
@@ -369,8 +393,8 @@
       var tchs = todays.filter(function (ci) { return !hasStage(ci.sid); }), tch = tchs.filter(function (ci) { return !ci.done; })[0] || tchs[0];
       if (tch) {
         var qs = getSet("c:" + tch.sid + ":" + tch.c.id), tot = qs ? qs.items.length : 0, dn = qs ? counts(qs.items).done : 0, quota = Math.min(tot, Math.max(15, Math.round(tot * 0.3))), left = Math.max(0, quota - dn), today25 = Math.min(25, left);
-        if (tot && today25) add("q2", subj(tch.sid).name + " 第 " + tch.no + " 章題目 " + today25 + " 題", "本章共 " + tot + " 題，12/5 前先做約 " + quota + " 題（已做 " + dn + "），其餘留給 7 月高普考", "#/p/c:" + tch.sid + ":" + tch.c.id + "/" + (resumeN("c:" + tch.sid + ":" + tch.c.id, tot) || 1), Math.round(today25 * 1.2 / 5) * 5, 1, tch.sid);
-        else if (!tot) add("q2", "今天章節的題目", "本章沒有對應題目，改做考卷 15 題", "#/s/" + tch.sid + "/ex", 20, 1, tch.sid);
+        if (tot && today25) add("q2:" + tch.key, subj(tch.sid).name + " 第 " + tch.no + " 章題目 " + today25 + " 題", "本章共 " + tot + " 題，12/5 前先做約 " + quota + " 題（已做 " + dn + "），其餘留給 7 月高普考", "#/p/c:" + tch.sid + ":" + tch.c.id + "/" + (resumeN("c:" + tch.sid + ":" + tch.c.id, tot) || 1), Math.round(today25 * 1.2 / 5) * 5, 1, tch.sid);
+        else if (!tot) add("q2:" + tch.key, "今天章節的題目", "本章沒有對應題目，改做考卷 15 題", "#/s/" + tch.sid + "/ex", 20, 1, tch.sid);
       }
       stageTasks(1, 25);
       add("eng", "英文考卷一份", "單字掌握約 9 成的那份，20–30 題，寫完看本題單字", "#/s/eng/ex", 30, 1, "eng");
@@ -405,7 +429,17 @@
       if (phase === 2) stageTasks(2, 15);
       if (wb.tot) add("wr", "錯題複習", "共 " + wb.tot + " 題", "#/s/" + top + "/wr", 20, 1, top);
     }
-    return { date: today, phase: phase, tasks: T };
+    // 加碼當天第一次出現就記在 plan[今天]._bx；做完（算不出來了）也留在清單上打勾，新的接在後面
+    var pl9 = S.plan[today] = S.plan[today] || {}, bx = pl9._bx || {}, has = {}, chg = false, extra9 = [];
+    T.forEach(function (t) { has[t.id] = t; if (t.tier && !bx[t.id]) { bx[t.id] = { t: t.t, sub: t.sub, href: t.href, min: t.min, sid: t.sid, ext: t.ext }; chg = true; } });
+    Object.keys(bx).forEach(function (id) {
+      if (has[id]) { if (has[id].tier) extra9.push(has[id]); return; }
+      var x = bx[id];
+      if (!pl9[id] && !(pl9._u && pl9._u[id])) { pl9[id] = Date.now(); pl9._t = Date.now(); chg = true; }
+      extra9.push({ id: id, t: x.t, sub: pl9[id] ? "今天已完成" : x.sub, href: x.href, min: x.min, tier: 1, sid: x.sid, ext: x.ext });
+    });
+    if (chg) { pl9._bx = bx; save(); }
+    return { date: today, phase: phase, tasks: T.filter(function (t) { return !t.tier; }).concat(extra9) };
   }
   function streak(todayDone) {
     var n = todayDone ? 1 : 0, d = new Date();
@@ -513,7 +547,11 @@
     function row(t) {
       var on = !!pl[t.id], used = taskMin(P.date, t.id), run = S.run && S.run.k === t.id && S.run.d === P.date;
       var box = h("button", { class: "tk-box" + (on ? " on" : ""), "aria-label": on ? "取消完成" : "完成", text: on ? "✓" : "", onclick: function () {
-        if (pl[t.id]) { delete pl[t.id]; (pl._u = pl._u || {})[t.id] = Date.now(); } else pl[t.id] = Date.now();
+        var cif = t.id.indexOf("ch:") === 0 ? chInfo(t.id.slice(3)) : null;
+        if (pl[t.id]) {
+          delete pl[t.id]; (pl._u = pl._u || {})[t.id] = Date.now();
+          if (cif) { (pl._nt = pl._nt || {})[t.id] = 1; if (cif.tot && cif.n === cif.tot) toast("本章各節仍算已讀；要取消請到章節頁按圓圈"); }
+        } else { pl[t.id] = Date.now(); if (pl._nt) delete pl._nt[t.id]; }
         pl._t = Date.now(); save(); route();
       } });
       var play = h("button", { class: "tk-play" + (run ? " on" : ""), "aria-label": "開始計時", style: "--c:" + (COL[t.sid] || COL[""]), onclick: function () {
@@ -765,6 +803,7 @@
   // 右緣同步鈕（search.js）：合併後 S 的物件都換新了，頁面一定要重畫，才不會寫到舊物件；但要留在原位，不跳回頂端
   var keepY = null;
   window.KSQuick = {
+    ttsExpand: function () { S.read.ttsc = 0; save(); ttsPlace(); },
     sync: function (done) {
       if (syncing) return done();
       if (!KSSync.cfg().token) { toast("先貼上權杖才能同步"); if (location.hash !== "#/settings") go("#/settings"); return done(); }
@@ -867,9 +906,10 @@
         var mk = (S.marks[mkey(sid, sec.id)] || []).length;
         var qs = !mq ? "" : sc.done === 0 ? ql + mq + "・未作答" : sc.done >= mq ? ql + mq + "・已做完" + (sc.wrong ? "（錯 " + sc.wrong + "）" : "") : ql + sc.done + "/" + mq + " 已做";
         var rp = S.pos["rd:" + sid + ":" + sec.id], rs = !rp ? "" : rp.fin ? "已讀完" : rp.pc ? "讀到 " + rp.pc + "%" : "";
+        var fck = (function (xid, on) { return h("button", { class: "fin-ck" + (on ? " on" : ""), "aria-label": on ? "取消已讀" : "標記為已讀", title: on ? "已讀完，點一下取消" : "點一下標記為已讀", text: on ? "✓" : "", onclick: function (ev) { ev.preventDefault(); ev.stopPropagation(); setFin(sid, cid, xid, !on); toast(on ? "已取消，這節不會再自動算已讀" : "已標記為已讀"); route(); } }); })(sec.id, !!(rp && rp.fin));
         var sub = [sec.text ? "課文" : "重點條列", rs, qs, mk ? "畫線 " + mk : ""].filter(Boolean).join("・");
-        rr.appendChild(h("a", { class: "row", href: "#/rd/" + sid + "/" + cid + "/" + sec.id },
-          h("div", null, h("div", { class: "small", text: (idx + 1) + "-" + (i + 1) }), h("div", { class: "nm", text: sec.title }), h("div", { class: "sub", text: sub })),
+        rr.appendChild(h("a", { class: "row row-fin", href: "#/rd/" + sid + "/" + cid + "/" + sec.id },
+          fck, h("div", null, h("div", { class: "small", text: (idx + 1) + "-" + (i + 1) }), h("div", { class: "nm", text: sec.title }), h("div", { class: "sub", text: sub })),
           mq && sc.done >= mq ? h("span", { class: "pill " + (sc.wrong ? "red" : "green"), text: sc.wrong ? "錯 " + sc.wrong : "✓" }) : h("span", { class: "go", text: "›" })));
       });
       rv.appendChild(rr);
@@ -977,7 +1017,8 @@
     var left = Math.max(8, Math.min(vw - w - 8, r.left + r.width / 2 - w / 2));
     var top = coarse ? r.bottom + 14 : r.top - hh - 8;
     if (top < 8) top = r.bottom + 10;
-    if (top + hh > innerHeight - 8) top = Math.max(8, r.top - hh - 8);
+    var tb = document.getElementById("ttsbar"), lim = tb && !tb.hidden && tb.parentNode === document.body ? tb.getBoundingClientRect().top - 8 : innerHeight - 8;   // 不要被底部的朗讀列擋住
+    if (top + hh > lim) top = Math.max(8, r.top - hh - 8);
     qbar.style.left = left + "px"; qbar.style.top = top + "px";
   }
   window.addEventListener("scroll", function () { if (qbar && !qbar.hidden) { if (qsel && qsel.erase) qHide(); else qPlace(); } }, { passive: true });
@@ -1043,7 +1084,7 @@
     }
   });
   document.addEventListener("mouseup", function () {
-    if (!coarse && S.read && S.read.qauto && qsel && qsel.q && !qsel.erase) setTimeout(function () { if (qsel && qsel.q && !qsel.erase) qAdd(); }, 30);
+    if (!coarse && S.read && S.read.qauto && qsel && qsel.q && !qsel.erase && !qsel.rd) setTimeout(function () { if (qsel && qsel.q && !qsel.erase) qAdd(); }, 30);
   });
 
   // 選項：劃記模式時不是按鈕（點了不會作答），點字母可以劃掉選項
@@ -1273,7 +1314,7 @@
       psgEl(it, true, true, vis, pk != null), q.q ? mkText("div", "qtext", q.q, k, "q", true, vis) : null, opts);
     card._rf = function () { viewPractice(key, n); };
     if (pk != null) {
-      card.appendChild(h("div", { style: "margin-top:14px" }, h("span", { class: "verdict " + (ok(q, pk) ? "ok" : "no"), text: ok(q, pk) ? "答對了" : "答錯，正解是 " + ansText(q) })));
+      card.appendChild(h("div", { style: "margin-top:14px" }, h("span", { class: "verdict " + (ok(q, pk) ? "ok" : "no"), text: ok(q, pk) ? "答對了" : "答錯，正解是 " + ansText(q) }), pinBtn(it)));
       if (q.note) card.appendChild(h("div", { class: "small", style: "margin-top:6px", text: "考選部更正：" + q.note }));
       if (q.x) card.appendChild(h("div", { class: "small xexp", style: "margin-top:6px;white-space:pre-line", text: "解析：" + q.x }));
       var vb = vocabBox(it); if (vb) card.appendChild(vb);
@@ -1303,14 +1344,23 @@
   }
   // 我的訂正：寫完後以閱讀模式顯示（隨內容長高，可長按畫重點）；按「編輯」改字，「全螢幕」寫長篇詳解
   function grow(ta) { ta.style.height = "auto"; ta.style.height = (ta.scrollHeight + 2) + "px"; }
+  // 「問 Claude」：在游標處打名字，接著可以直接打字
+  function insName(ta) {
+    var s = ta.selectionStart == null ? ta.value.length : ta.selectionStart, e = ta.selectionEnd == null ? s : ta.selectionEnd;
+    ta.setRangeText("Claude ", s, e, "end"); ta.focus();
+    ta.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+  function askBtn(cls, fn) { return h("button", { class: cls, type: "button", text: "問 Claude", onpointerdown: function (ev) { ev.preventDefault(); }, onclick: fn }); }
   function noteBox(it) {
     var k = qid(it.e, it.n), box = h("div", { class: "nbox" }), editing = !(S.notes[k] || "").trim();
     function setNote(v) { if ((S.notes[k] || "") === v) return; S.notes[k] = v; S.nts[k] = Date.now(); save(); }
+    function repOn() { S.repq[k] = { sent: false, ts: Date.now() }; save(); var c = box.querySelector(".rep-ck input"); if (c) c.checked = true; }
     function full() {
       var ta = h("textarea", { class: "full-ta", placeholder: "貼上喜歡的考生詳解，或寫自己的筆記", oninput: function () { setNote(ta.value); } });
       ta.value = S.notes[k] || "";
       var ov = h("div", { class: "fullov", role: "dialog", "aria-label": "我的訂正" },
         h("div", { class: "full-head" }, h("div", { class: "h2", text: "我的訂正" }), h("span", { class: "small", text: it.e.short + " 第 " + qno(it) + " 題" }),
+          askBtn("btn soft", function () { insName(ta); repOn(); }),
           h("button", { class: "btn", text: "完成", onclick: function () { setNote(ta.value); ov.remove(); document.body.classList.remove("noscroll"); editing = !(S.notes[k] || "").trim(); render(); } })),
         ta);
       document.body.appendChild(ov); document.body.classList.add("noscroll"); ta.focus();
@@ -1321,12 +1371,18 @@
       if (editing) {
         var ta = h("textarea", { class: "grow", placeholder: "貼上喜歡的考生詳解，或寫自己的筆記", oninput: function () { setNote(ta.value); grow(ta); } });
         ta.value = txt;
+        btns.appendChild(askBtn("link strong", function () { insName(ta); repOn(); }));
         btns.appendChild(h("button", { class: "link", text: "全螢幕", onclick: function () { setNote(ta.value); full(); } }));
         btns.appendChild(h("button", { class: "link strong", text: "完成", onclick: function () { setNote(ta.value); if (!ta.value.trim()) return toast("還沒寫內容"); editing = false; render(); } }));
         box.appendChild(h("div", { class: "nhead" }, h("span", { class: "small", text: "我的訂正" }), btns));
         box.appendChild(ta);
         requestAnimationFrame(function () { grow(ta); });
       } else {
+        btns.appendChild(askBtn("link strong", function () {
+          editing = true; render();
+          var t2 = box.querySelector("textarea"); t2.value += "\n"; t2.setSelectionRange(t2.value.length, t2.value.length);
+          insName(t2); repOn();
+        }));
         btns.appendChild(h("button", { class: "link", text: "全螢幕", onclick: full }));
         btns.appendChild(h("button", { class: "link strong", text: "編輯", onclick: function () { editing = true; render(); } }));
         box.appendChild(h("div", { class: "nhead" }, h("span", { class: "small", text: "我的訂正・長按選字可畫重點" }), btns));
@@ -1395,6 +1451,7 @@
         h("div", { class: "qtools" }, modeBtn(mode, function () { mode = !mode; qHide(); render(); })),
         psgEl(it, false, mode, true, true), q.q ? mkText("div", "qtext", q.q, k, "q", mode, true) : null, opts, q.note ? h("div", { class: "small", text: "考選部更正：" + q.note }) : null,
         q.x ? h("div", { class: "small xexp", style: "white-space:pre-line", text: "解析：" + q.x }) : null,
+        h("div", { class: "pin-row" }, pinBtn(it)),
         vocabBox(it),
         h("p", null, h("a", { class: "link-out", href: search(q), target: "_blank", rel: "noopener", text: "到阿摩看考生詳解 ↗" })), nb);
     }
@@ -1729,6 +1786,18 @@
     TT.on = false; TT.gen++; if (window.speechSynthesis) speechSynthesis.cancel();
     [].forEach.call(document.querySelectorAll(".tts-on"), function (e) { e.classList.remove("tts-on"); });
     var b = document.getElementById("ttsbar"); if (b) b.remove();
+    ttsPlace();
+  }
+  // 朗讀列的位置：電腦放左欄目錄下方；手機在底部，可縮成右側按鈕列的喇叭（S.read.ttsc，只存本機）
+  function ttsPlace() {
+    var bar = document.getElementById("ttsbar"), side = window.matchMedia("(min-width: 900px)").matches ? document.querySelector(".rd-side") : null, mini = false;
+    if (bar) {
+      var host = side || document.body; if (bar.parentNode !== host) host.appendChild(bar);
+      mini = !side && !!S.read.ttsc; bar.hidden = mini;
+    }
+    document.body.classList.toggle("tts-pad", !!bar && !side && !mini);
+    if (window.KSRailTts) window.KSRailTts(mini);
+    qPlace();
   }
   function ttsSpeak(i) {
     var art = TT.art; if (!art || !document.body.contains(art)) return ttsStop();
@@ -1737,7 +1806,8 @@
     if (i >= bl.length) { ttsStop(); toast("讀完了"); return; }
     TT.i = i; speechSynthesis.cancel();
     [].forEach.call(art.querySelectorAll(".tts-on"), function (e) { e.classList.remove("tts-on"); });
-    bl[i].el.classList.add("tts-on"); bl[i].el.scrollIntoView({ block: "center", behavior: "smooth" });
+    bl[i].el.classList.add("tts-on");
+    var sl = window.getSelection(); if (!sl || sl.isCollapsed) bl[i].el.scrollIntoView({ block: "center", behavior: "smooth" });   // 正在選字時不要把畫面捲走
     var ch = ttsChunks(bl[i].t), k = 0, vs = ttsVoices(), want = S.read.ttsv, voice = vs.filter(function (v) { return v.name === want; })[0] || vs[0];
     (function next() {
       if (g !== TT.gen) return;
@@ -1755,18 +1825,24 @@
     var rt = h("button", { class: "tb", text: (S.read.ttsr || 1) + "×", "aria-label": "速度", onclick: function () { var i = (rates.indexOf(S.read.ttsr || 1) + 1) % rates.length; S.read.ttsr = rates[i]; save(); rt.textContent = rates[i] + "×"; ttsSpeak(TT.i); } });
     var vsel = vs.length > 1 ? h("select", { class: "tb tb-v", "aria-label": "聲音", onchange: function () { S.read.ttsv = vsel.value; save(); ttsSpeak(TT.i); } }, vs.map(function (v) { return h("option", { value: v.name, text: v.name.replace(/Microsoft |Google /, "").slice(0, 22), selected: v.name === S.read.ttsv ? "" : null }); })) : null;
     var bar = h("div", { id: "ttsbar", class: "ttsbar" }, h("button", { class: "tb", text: "⏮", "aria-label": "上一段", onclick: function () { ttsSpeak(Math.max(0, TT.i - 1)); } }), pp,
-      h("button", { class: "tb", text: "⏭", "aria-label": "下一段", onclick: function () { ttsSpeak(TT.i + 1); } }), rt, vsel, h("button", { class: "tb", text: "✕", "aria-label": "停止朗讀", onclick: ttsStop }));
-    document.body.appendChild(bar);
+      h("button", { class: "tb", text: "⏭", "aria-label": "下一段", onclick: function () { ttsSpeak(TT.i + 1); } }), rt, vsel, h("button", { class: "tb tb-min", text: "⌄", "aria-label": "縮到側邊", onclick: function () { S.read.ttsc = 1; save(); ttsPlace(); } }), h("button", { class: "tb", text: "✕", "aria-label": "停止朗讀", onclick: ttsStop }));
+    document.body.appendChild(bar); ttsPlace();
   }
   function ttsStart(art, from) {
     if (!window.speechSynthesis) { toast("這個瀏覽器不支援朗讀"); return; }
     ttsStop(); TT.on = true; TT.art = art; ttsBar(); ttsSpeak(from || 0);
   }
-  window.addEventListener("hashchange", function () { if (TT.on) ttsStop(); });
+  window.addEventListener("hashchange", function () { if (TT.on) ttsStop(); if (qsel && qsel.rd) qHide(); });
+  window.addEventListener("resize", function () { if (TT.on) ttsPlace(); });
   if (window.speechSynthesis) speechSynthesis.onvoiceschanged = function () { };
 
   var selPending = null, selTimer = null;
+  // 讀課文的停留時間：離開或重畫時存回 S.pos
+  var RD = { flush: null, vis: null };
+  window.addEventListener("hashchange", function () { if (RD.flush) { RD.flush(); RD.flush = RD.vis = null; } });
+  document.addEventListener("visibilitychange", function () { if (RD.vis) RD.vis(); });
   function viewRead(sid, cid, xid) {
+    if (RD.flush) { RD.flush(); RD.flush = RD.vis = null; }
     var s = subj(sid), c = chapter(sid, cid), sec = section(sid, cid, xid);
     var secs = c.sections, si = secs.indexOf(sec), ci = chapters(sid).indexOf(c);
     var key = "c:" + sid + ":" + cid + ":" + xid, set = getSet(key), es = setEssays(key);
@@ -1834,7 +1910,7 @@
       sheet = h("div", { class: "sheet-bg", onclick: function (ev) { if (ev.target === sheet) close(true); } },
         h("div", { class: "sheet" },
           h("div", { class: "sq", text: "「" + mk.q + "」" }), ta,
-          h("label", { class: "rep-ck" }, cb, h("span", { text: "回報給 Claude，補進課文" })),
+          h("div", { class: "ask-row" }, h("label", { class: "rep-ck" }, cb, h("span", { text: "回報給 Claude，補進課文" })), askBtn("link strong", function () { insName(ta); cb.checked = true; })),
           h("div", { class: "btns" },
             h("button", { class: "btn soft red-t", text: "刪除畫線", onclick: function () {
               S.marks[MK] = (S.marks[MK] || []).filter(function (x) { return x !== mk; }); S.del[mk.id] = Date.now(); close(false);
@@ -1851,10 +1927,7 @@
       paint();
       if (withNote) openMark(mk);
     }
-    var bar = h("div", { class: "selbar", hidden: true },
-      h("button", { class: "btn", text: "畫重點", onpointerdown: function (ev) { ev.preventDefault(); }, onclick: function () { addMark(false); } }),
-      h("button", { class: "btn soft", text: "畫重點＋備註", onpointerdown: function (ev) { ev.preventDefault(); }, onclick: function () { addMark(true); } }));
-    function hideBar() { bar.hidden = true; selPending = null; }
+    function hideBar() { selPending = null; if (qsel && qsel.rd) qHide(); }
     function onSel() {
       if (!art.isConnected) return document.removeEventListener("selectionchange", onSel);
       var w = window.getSelection();
@@ -1872,7 +1945,8 @@
       if (!txt) return;
       clearTimeout(selTimer);
       selPending = { p: +pa.getAttribute("data-p"), s: st + (+pa.getAttribute("data-po") || 0), q: txt };
-      bar.hidden = false;
+      clearTimeout(qtimer); qsel = { rd: true, q: txt };
+      qBar([["畫重點", function () { addMark(false); }], ["畫重點＋備註", function () { addMark(true); }, 1]], function () { var w2 = window.getSelection(); return w2 && w2.rangeCount && !w2.isCollapsed ? w2.getRangeAt(0).getBoundingClientRect() : null; });
     }
     document.addEventListener("selectionchange", onSel);
     function fsChip(label, v) { return h("button", { class: "chip", "aria-pressed": String(fs === v), text: label, onclick: function () { R.fs = v; save(); viewRead(sid, cid, xid); } }); }
@@ -1912,10 +1986,28 @@
     });
     // 手機：頂端顯示目前讀到的小標
     var now = h("div", { class: "rd-now", hidden: true });
-    show(topbar("#/c/" + sid + "/" + cid, "第 " + (ci + 1) + " 章"), now, h("div", { class: "rd-wrap" }, h("aside", { class: "rd-side" }, toc), h("div", { class: "rd-main" }, head, art, mine, tail, nav)), bar);
+    show(topbar("#/c/" + sid + "/" + cid, "第 " + (ci + 1) + " 章"), now, h("div", { class: "rd-wrap" }, h("aside", { class: "rd-side" }, toc), h("div", { class: "rd-main" }, head, art, mine, tail, nav)));
+    if (TT.on && TT.art && !TT.art.isConnected) { TT.art = art; ttsBar(); ttsSpeak(TT.i); }   // 同一節重畫（換字級、同步）後接著讀
 
     // ---------- 讀到哪：捲動時記下段落、目錄藍標跟著小標走 ----------
     var RK = "rd:" + sid + ":" + xid, saved = S.pos[RK], curH = null, tmr = null, lastP = -1;
+    // 捲到節末且累計停留達預估時間的 3 成才自動算已讀，翻看後面章節不會被算進去。dw＝這節累計停留毫秒
+    var needMs = paras(sec).join("").length / 200 * 0.3 * 60000, dw0 = (saved && saved.dw) || 0, dwAt = document.hidden ? 0 : Date.now(), endTmr = null;
+    function dwell() { return dw0 + (dwAt ? Date.now() - dwAt : 0); }
+    RD.flush = function () {
+      clearTimeout(endTmr);
+      var o = S.pos[RK]; if (!o && dwell() < 5000) return;
+      setPos(RK, Object.assign({}, o, { dw: Math.round(dwell()) }));
+    };
+    RD.vis = function () { if (document.hidden) { dw0 = dwell(); dwAt = 0; var o = S.pos[RK]; if (o || dw0 >= 5000) setPos(RK, Object.assign({}, o, { dw: Math.round(dw0) })); } else dwAt = Date.now(); };
+    var finRow = h("div", { class: "fin-row" });
+    function renderFin() {
+      var r = S.pos[RK] || {};
+      finRow.replaceChildren(
+        h("span", { class: "small" + (r.fin ? " fin-yes" : ""), text: r.fin ? "✓ 本節已讀完" : r.nofin ? "已取消已讀，不會再自動算" : "停留夠久會自動算已讀" }),
+        h("button", { class: r.fin ? "link" : "link strong", text: r.fin ? "取消已讀" : "標記為已讀", onclick: function () { var on = !(S.pos[RK] || {}).fin; setFin(sid, cid, xid, on); toast(on ? "已標記為已讀" : "已取消，這節不會再自動算已讀"); renderFin(); } }));
+    }
+    renderFin(); tail.insertBefore(finRow, tail.firstChild);
     function topPara() {   // 畫面上方（扣掉頂欄）第一個還看得到的段落
       var kids = art.children, line = 90, lo = 0, hi = kids.length - 1, ans = 0;
       while (lo <= hi) { var mid = (lo + hi) >> 1; if (kids[mid].getBoundingClientRect().top <= line) { ans = mid; lo = mid + 1; } else hi = mid - 1; }
@@ -1937,12 +2029,15 @@
     function remember() {
       if (!art.isConnected) return;
       var p = topPara(), n = art.children.length, done = tail.getBoundingClientRect().top < window.innerHeight;
-      var pc = done ? 100 : Math.round(p / Math.max(1, n - 1) * 100);
+      var o = S.pos[RK] || {}, fin = o.fin || (done && !o.nofin && dwell() >= needMs);
+      clearTimeout(endTmr);
+      if (done && !fin && !o.nofin) endTmr = setTimeout(remember, Math.max(1000, needMs - dwell() + 300));   // 停在節末繼續讀也要算得到
+      var pc = done ? (fin ? 100 : 99) : Math.round(p / Math.max(1, n - 1) * 100);
       if (p === lastP && !done) return; lastP = p;
-      var o = S.pos[RK] || {};
-      if (o.p === p && !!o.done === done) return;
+      if (o.p === p && !!o.done === done && !!o.fin === !!fin) return;
       // done＝現在停在節末（下次從頭讀）；fin＝曾經讀完（章節頁顯示「已讀完」）
-      setPos(RK, { p: p, pc: pc, done: done || undefined, fin: done || o.fin || undefined });
+      setPos(RK, { p: p, pc: pc, done: done || undefined, fin: fin || undefined, nofin: o.nofin, dw: Math.round(dwell()) });
+      if (fin && !o.fin) { renderFin(); toast("本節算已讀完"); }
     }
     function onScroll() { spy(); clearTimeout(tmr); tmr = setTimeout(remember, 600); }
     window.addEventListener("scroll", onScroll, { passive: true });
@@ -1956,6 +2051,7 @@
         toast("接續上次讀到的地方");
       });
     } else requestAnimationFrame(spy);
+    setTimeout(function () { if (art.isConnected && tail.getBoundingClientRect().top < window.innerHeight) remember(); }, 1000);   // 短到不用捲動的節
   }
 
   // ---------- 回報給 Claude ----------

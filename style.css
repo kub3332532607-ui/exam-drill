@@ -560,3 +560,20 @@ body.has-tabs .upd-bar { bottom: calc(80px + env(safe-area-inset-bottom)); }
 .srt-chips { display: flex; flex-wrap: wrap; gap: 4px; }
 .srt-chip { font-size: 12px; color: var(--ink); background: var(--green-soft); border-radius: 6px; padding: 2px 6px; }
 .srt-bin.right .srt-chip { background: var(--card); }
+
+/* ---- ks-v55：朗讀列位置、已讀、錯題本、問 Claude ---- */
+.ttsbar[hidden] { display: none; }
+body.tts-pad #app { padding-bottom: 84px; }
+.rd-side .ttsbar { position: sticky; bottom: 0; left: auto; transform: none; margin-top: 14px; flex-wrap: wrap; justify-content: center; border-radius: 14px; border: 1px solid var(--line); max-width: none; box-shadow: 0 2px 12px rgba(0,0,0,.14); }
+.rd-side .ttsbar .tb-v { flex: 1 1 100%; max-width: none; order: 9; }
+.rd-side .tb-min { display: none; }
+@media (max-width: 480px) { .ttsbar .tb { min-width: 36px; } .ttsbar .tb-v { max-width: 84px; } }
+.fin-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding-bottom: 10px; margin-bottom: 10px; border-bottom: 1px solid var(--line); }
+.fin-yes { color: var(--accent); font-weight: 700; }
+.row.row-fin { grid-template-columns: auto 1fr auto; }
+.fin-ck { width: 28px; height: 28px; padding: 0; border-radius: 50%; border: 2px solid var(--line); background: none; color: #fff; font-size: 15px; font-weight: 700; line-height: 1; cursor: pointer; }
+.fin-ck.on { background: var(--accent); border-color: var(--accent); }
+.pin-btn { margin-left: 10px; }
+.pin-row { margin-top: 8px; }
+.pin-row .pin-btn { margin-left: 0; }
+.ask-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }

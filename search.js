@@ -360,7 +360,11 @@
   homeBtn.innerHTML = railIc('<path d="M4 11l8-7 8 7v8a1 1 0 0 1-1 1h-4v-6h-6v6H5a1 1 0 0 1-1-1z"/>');
   var syncBtn = h("button", { class: "sp-fab", "aria-label": "雲端同步" });
   syncBtn.innerHTML = IC_CLOUD;
-  var rail = h("div", { class: "sp-rail" }, fab, homeBtn, syncBtn);
+  var ttsBtn = h("button", { class: "sp-fab", "aria-label": "展開朗讀" });
+  ttsBtn.innerHTML = railIc('<path d="M4 9v6h4l5 4V5L8 9z"/><path d="M17 9a4 4 0 0 1 0 6"/>');
+  ttsBtn.hidden = true;
+  var rail = h("div", { class: "sp-rail" }, fab, homeBtn, syncBtn, ttsBtn);
+  window.KSRailTts = function (show) { ttsBtn.hidden = !show; fabPlace(); };
   var wideMQ = window.matchMedia("(min-width: 860px)");
 
   function chip(label, on, fn, col) {
@@ -450,6 +454,7 @@
   function act(b) {
     if (b === fab) open();
     else if (b === homeBtn) location.hash = "#/";
+    else if (b === ttsBtn && window.KSQuick) window.KSQuick.ttsExpand();
     else if (b === syncBtn && window.KSQuick && !syncBtn.classList.contains("busy")) {
       syncBtn.classList.add("busy"); syncBtn.innerHTML = IC_BUSY;
       window.KSQuick.sync(function () { syncBtn.classList.remove("busy"); syncBtn.innerHTML = IC_CLOUD; });

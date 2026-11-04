@@ -87,6 +87,7 @@
         if (tk > num(u[t])) o[t] = tk; else delete o[t];
       });
       if (Object.keys(u).length) o._u = u;
+      if (a._bx || b._bx) o._bx = Object.assign({}, a._bx, b._bx);   // 當天的加碼清單：聯集
       o._t = Math.max(num(a._t), num(b._t));
     });
 
