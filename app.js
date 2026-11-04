@@ -3,7 +3,7 @@
   var KS = window.KS, LET = ["A", "B", "C", "D"];
   var app = document.getElementById("app");
   // 版本號：和 sw.js 的 VER 保持一致，改程式時兩邊一起加一
-  var APP_VER = "ks-v49", APP_DATE = "2026-11-04";
+  var APP_VER = "ks-v50", APP_DATE = "2026-11-04";
 
   // ---------- 儲存 ----------
   var KEY = "ks_v1";
@@ -119,11 +119,12 @@
   }
 
   // ---------- 題組（考卷、章節、錯題共用） ----------
-  // key 形式：e:考卷id ｜ c:科目:章id（_none＝未分章）｜ w:科目 ｜ t:科目:章id:階段
+  // key 形式：e:考卷id ｜ c:科目:章id（_none＝未分章）｜ w:科目 ｜ t:科目:章id:階段[:節id]
   // 分階段（題目的 st）：1＝地特前要做；地特後＝全部考卷題＋st 2 的題庫題，沒標的題庫題不排。有 st 的科目才分階段，其餘科維持三成
   var stCache = {};
   function hasStage(sid) { if (stCache[sid] == null) stCache[sid] = KS.exams.some(function (e) { return e.subject === sid && e.questions.some(function (q) { return q.st; }); }); return stCache[sid]; }
   function inStage(e, q, st) { return st === 1 ? q.st === 1 : !!q.st || e.id.indexOf("bank") !== 0; }
+  function stageNow() { return ymd(new Date()) <= EXAM_END ? 1 : 2; }
   function getSet(key) {
     var p = key.split(":"), items = [], title = "", sid, back;
     if (p[0] === "e") {
@@ -135,12 +136,12 @@
     sid = p[1];
     KS.exams.filter(function (e) { return e.subject === sid; }).forEach(function (e) {
       e.questions.forEach(function (q, i) {
-        var hit = p[0] === "t" ? q.ch === p[2] && inStage(e, q, +p[3]) : p[0] === "c" ? (p[2] === "_none" ? !q.ch : q.ch === p[2] && (!p[3] || q.sec === p[3])) : (stat(e, i + 1) && stat(e, i + 1).last === "w");
+        var hit = p[0] === "t" ? q.ch === p[2] && inStage(e, q, +p[3]) && (!p[4] || q.sec === p[4]) : p[0] === "c" ? (p[2] === "_none" ? !q.ch : q.ch === p[2] && (!p[3] || q.sec === p[3])) : (stat(e, i + 1) && stat(e, i + 1).last === "w");
         if (hit) items.push({ e: e, n: i + 1, q: q });
       });
     });
     if (p[0] === "c" && p[3]) { var sc = section(sid, p[2], p[3]); if (!sc) return null; title = sc.title; back = "#/rd/" + sid + "/" + p[2] + "/" + p[3]; }
-    else if (p[0] === "t") { title = chapter(sid, p[2]).title + (p[3] === "1" ? "・重點題" : "・題目"); back = "#/"; }
+    else if (p[0] === "t") { title = (p[4] ? section(sid, p[2], p[4]).title : chapter(sid, p[2]).title) + (p[3] === "1" ? "・重點題" : "・題目"); back = p[4] ? "#/rd/" + sid + "/" + p[2] + "/" + p[4] : "#/"; }
     else if (p[0] === "c") { var c = chapter(sid, p[2]); title = c ? c.title : "尚未分章的題目"; back = "#/c/" + sid + "/" + p[2]; }
     else { title = subj(sid).name + " 錯題"; back = "#/s/" + sid + "/wr"; }
     return { key: key, title: title, sid: sid, items: items, back: back };
@@ -322,17 +323,23 @@
       var key = "c:" + sid + ":" + ns.cid + ":" + ns.x.id, st = getSet(key);
       if (!hasStage(sid)) add("qs", s.name + "：本節題目", st && st.items.length ? "共 " + st.items.length + " 題，做完看解析" : "本節沒有題目，改做考卷 15 題", st && st.items.length ? "#/p/" + key + "/1" : "#/s/" + sid + "/ex", qmin, 0, sid);
     }
-    // 分階段的科目：每科一項，從第一章還沒做完的接著做。階段一只出讀完的章；階段二依章序
+    // 分階段的科目：依節序出還沒做完的題，合計最多 max 題。階段一只出讀完的節；階段二不看讀到哪
     function stageTasks(st, max) {
       KS.subjects.forEach(function (s) {
         if (!hasStage(s.id)) return;
-        chapters(s.id).some(function (c, i) {
-          if (st === 1 && !chInfo(s.id + ":" + c.id).done) return false;
-          var key = "t:" + s.id + ":" + c.id + ":" + st, set = getSet(key), tot = set.items.length, dn = counts(set.items).done, nx = max < tot - dn ? max : tot - dn;
-          if (!nx) return false;
-          var at = 0; set.items.some(function (it, j) { at = j + 1; return !stat(it.e, it.n); });
-          add("st" + st + ":" + s.id + ":" + c.id, s.name + " 第 " + (i + 1) + " 章" + (st === 1 ? "重點題 " : "題目 ") + nx + " 題", (st === 1 ? "地特前只做這些：本章 " : "高普考：本章 ") + tot + " 題（已做 " + dn + "）", "#/p/" + key + "/" + at, Math.round(nx * 1.2 / 5) * 5, 1, s.id);
-          return true;
+        var rem = max;
+        chapters(s.id).forEach(function (c, i) {
+          var chDone = st === 1 && chInfo(s.id + ":" + c.id).done;
+          (c.sections || []).forEach(function (x, j) {
+            if (!rem) return;
+            var rd = S.pos["rd:" + s.id + ":" + x.id];
+            if (st === 1 && !chDone && !(rd && rd.fin)) return;
+            var key = "t:" + s.id + ":" + c.id + ":" + st + ":" + x.id, set = getSet(key), tot = set.items.length, dn = counts(set.items).done, nx = Math.min(rem, tot - dn);
+            if (nx <= 0) return;
+            var at = 0; set.items.some(function (it, k) { at = k + 1; return !stat(it.e, it.n); });
+            add("st" + st + ":" + s.id + ":" + x.id, s.name + " " + (i + 1) + "-" + (j + 1) + (st === 1 ? " 重點題 " : " 題目 ") + nx + " 題", x.title + "・本節 " + tot + " 題（已做 " + dn + "）", "#/p/" + key + "/" + at, Math.max(5, Math.round(nx * 1.2 / 5) * 5), 1, s.id);
+            rem -= nx;
+          });
         });
       });
     }
@@ -839,9 +846,9 @@
     if (c) {
       var rv = h("div", { class: "card col-l" }, h("div", { class: "h2", text: "考點複習" })), rr = h("div", { class: "rows" });
       c.sections.forEach(function (sec, i) {
-        var sq = set.items.filter(function (it) { return it.q.sec === sec.id; }), mq = sq.length, sc = counts(sq);
+        var stg = hasStage(sid) ? stageNow() : 0, sq = set.items.filter(function (it) { return it.q.sec === sec.id && (!stg || inStage(it.e, it.q, stg)); }), mq = sq.length, sc = counts(sq), ql = stg === 1 ? "重點題 " : "選擇題 ";
         var mk = (S.marks[mkey(sid, sec.id)] || []).length;
-        var qs = !mq ? "" : sc.done === 0 ? "選擇題 " + mq + "・未作答" : sc.done >= mq ? "選擇題 " + mq + "・已做完" + (sc.wrong ? "（錯 " + sc.wrong + "）" : "") : "選擇題 " + sc.done + "/" + mq + " 已做";
+        var qs = !mq ? "" : sc.done === 0 ? ql + mq + "・未作答" : sc.done >= mq ? ql + mq + "・已做完" + (sc.wrong ? "（錯 " + sc.wrong + "）" : "") : ql + sc.done + "/" + mq + " 已做";
         var rp = S.pos["rd:" + sid + ":" + sec.id], rs = !rp ? "" : rp.fin ? "已讀完" : rp.pc ? "讀到 " + rp.pc + "%" : "";
         var sub = [sec.text ? "課文" : "重點條列", rs, qs, mk ? "畫線 " + mk : ""].filter(Boolean).join("・");
         rr.appendChild(h("a", { class: "row", href: "#/rd/" + sid + "/" + cid + "/" + sec.id },
@@ -1265,15 +1272,16 @@
   // 線上作答做完後要去哪：節 → 下一節（最後一節 → 下一章第一節）；章 → 下一章；其他回原處
   function nextTarget(key, set) {
     var p = key.split(":"), res = { href: set.back, label: "完成" };
-    if (p[0] !== "c" || p[2] === "_none") return res;
+    if ((p[0] !== "c" && !(p[0] === "t" && p[4])) || p[2] === "_none") return res;
+    var sx = p[0] === "t" ? p[4] : p[3];
     var chs = chapters(p[1]), ci = chs.indexOf(chapter(p[1], p[2])); if (ci < 0) return res;
     var secs = chs[ci].sections, nextCh = chs[ci + 1];
     function firstOf(c) { return c.sections.length ? "#/rd/" + p[1] + "/" + c.id + "/" + c.sections[0].id : "#/c/" + p[1] + "/" + c.id; }
-    if (p[3]) {
-      var si = secs.map(function (x) { return x.id; }).indexOf(p[3]);
+    if (sx) {
+      var si = secs.map(function (x) { return x.id; }).indexOf(sx);
       if (si >= 0 && si < secs.length - 1) return { href: "#/rd/" + p[1] + "/" + p[2] + "/" + secs[si + 1].id, label: "完成，下一節 ›" };
     }
-    if (nextCh) return { href: p[3] ? firstOf(nextCh) : "#/c/" + p[1] + "/" + nextCh.id, label: "完成，下一章 ›" };
+    if (nextCh) return { href: sx ? firstOf(nextCh) : "#/c/" + p[1] + "/" + nextCh.id, label: "完成，下一章 ›" };
     return res;
   }
   // 我的訂正：寫完後以閱讀模式顯示（隨內容長高，可長按畫重點）；按「編輯」改字，「全螢幕」寫長篇詳解
@@ -1763,9 +1771,15 @@
       h("div", { class: "small", text: "長按選字，就能畫重點或寫備註。點畫過的字可修改。🔊 朗讀：連點兩下某段可從那段開始讀。" }));
     paint();
     art.addEventListener("dblclick", function (ev) { var w = window.getSelection(); if (w) w.removeAllRanges(); var c = ev.target.closest ? ev.target.closest(".art > *") : null; if (!c) return; var i = [].indexOf.call(art.children, c); if (i >= 0) ttsStart(art, i); });
+    // 分階段的科目：主按鈕是本節該階段的題，全部題目放在旁邊
+    var stg = hasStage(sid) ? stageNow() : 0, tk = "t:" + sid + ":" + cid + ":" + stg + ":" + xid, ts = stg ? getSet(tk) : null, tn = ts ? ts.items.length : 0;
     var tail = h("div", { class: "card" }, h("div", { class: "h2", text: "讀完這節，寫考古題" }),
-      h("div", { class: "muted", text: set.items.length ? "本節有 " + set.items.length + " 題選擇題。" : "本節還沒有對應的選擇題。" }));
-    if (set.items.length) tail.appendChild(h("div", { class: "btns" }, pracBtns(key, set.items.length, true).concat([
+      h("div", { class: "muted", text: stg ? (tn ? (stg === 1 ? "本節重點題 " : "本節題目 ") + tn + " 題（已做 " + counts(ts.items).done + "）。" : stg === 1 ? "本節地特前沒排題，接著讀下一節。" : "本節沒有排題，接著讀下一節。") : set.items.length ? "本節有 " + set.items.length + " 題選擇題。" : "本節還沒有對應的選擇題。" }));
+    if (tn) tail.appendChild(h("div", { class: "btns" }, pracBtns(tk, tn, true)));
+    if (stg && set.items.length) tail.appendChild(h("div", { class: "btns" }, h("a", { class: "btn soft", href: "#/p/" + key + "/" + (resumeN(key, set.items.length) || 1), text: "本節全部 " + set.items.length + " 題" }),
+      h("a", { class: "btn soft", href: "#/print/" + key, text: "列印本節" }),
+      h("a", { class: "btn soft", href: "#/g/" + key, text: "對答案" })));
+    if (!stg && set.items.length) tail.appendChild(h("div", { class: "btns" }, pracBtns(key, set.items.length, true).concat([
       h("a", { class: "btn soft", href: "#/print/" + key, text: "列印本節" }),
       h("a", { class: "btn soft", href: "#/g/" + key, text: "對答案" })])));
     if (es.length) { var el2 = h("div", { class: "sec-links" }); es.forEach(function (x) { el2.appendChild(h("a", { class: "pill", href: "#/es/" + x.id, text: "申論 " + x.src })); }); tail.appendChild(el2); }
