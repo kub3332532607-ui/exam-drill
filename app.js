@@ -3,7 +3,7 @@
   var KS = window.KS, LET = ["A", "B", "C", "D"];
   var app = document.getElementById("app");
   // 版本號：和 sw.js 的 VER 保持一致，改程式時兩邊一起加一
-  var APP_VER = "ks-v51", APP_DATE = "2026-11-04";
+  var APP_VER = "ks-v52", APP_DATE = "2026-11-04";
 
   // ---------- 儲存 ----------
   var KEY = "ks_v1";
@@ -1511,7 +1511,7 @@
   function paras(sec) { return sec.text || sec.body || []; }
   // 圖表區塊（不能畫線，但算段落序號）：
   //  表格："表｜標題\n| 欄 | 欄 |\n|---|---|\n| 格 | 格 |"（標題可省略，直接以「| 」開頭）
-  //  流程："::flow 標題\n步驟｜說明\n步驟｜說明"　時間軸："::timeline 標題\n年份｜事件"　向量圖："::svg 圖名 標題\n文字說明"（圖在 data/figs.js）
+  //  流程："::flow 標題\n步驟｜說明\n步驟｜說明"　時間軸："::timeline 標題\n年份｜事件"　向量圖："::svg 圖名 標題\n文字說明"（圖在 data/figs.js）　連連看："::match 標題\n左｜右"（不能畫線，也不參與畫線比對）
   function parseBlock(raw) {
     var lines = raw.split("\n"), cap = "";
     if (raw.slice(0, 2) === "表｜" || raw.slice(0, 2) === "| ") {
@@ -1522,7 +1522,7 @@
     }
     var s = /^::svg (\S+) ?(.*)$/.exec(lines[0]);
     if (s) return { kind: "svg", key: s[1], cap: s[2], alt: lines.slice(1).join(" "), items: [] };
-    var m = /^::(flow|timeline) ?(.*)$/.exec(lines[0]);
+    var m = /^::(flow|timeline|match) ?(.*)$/.exec(lines[0]);
     if (m) return { kind: m[1], cap: m[2], items: lines.slice(1).filter(Boolean).map(function (l) { var i = l.indexOf("｜"); return i < 0 ? [l, ""] : [l.slice(0, i), l.slice(i + 1)]; }) };
     return null;
   }
@@ -1530,6 +1530,47 @@
     var f = document.createDocumentFragment();
     t.split("**").forEach(function (x, i) { if (x) f.appendChild(i % 2 ? h("strong", { text: x }) : document.createTextNode(x)); });
     return f;
+  }
+  // 連連看：左右各自洗牌，先點哪邊都可以；對了畫線鎖定，錯了閃紅計次。結果不記錄，重畫或離開這節就重來。
+  function matchBoard(items) {
+    var picked = null, done = 0, miss = 0;
+    var score = h("span", { "aria-live": "polite" }), res = h("p", { class: "mt-res", "aria-live": "polite", hidden: true });
+    var left = h("div", { class: "mt-col mt-l" }), right = h("div", { class: "mt-col mt-r" });
+    var lines = document.createElementNS("http://www.w3.org/2000/svg", "svg"); lines.setAttribute("class", "mt-lines"); lines.setAttribute("aria-hidden", "true");
+    var board = h("div", { class: "mt-board" }, lines, left, right);
+    function order() { var a = items.map(function (x, i) { return i; }); for (var i = a.length - 1; i > 0; i--) { var j = Math.floor(Math.random() * (i + 1)), t = a[i]; a[i] = a[j]; a[j] = t; } return a; }
+    function draw() {
+      var box = board.getBoundingClientRect(); lines.textContent = "";
+      [].forEach.call(left.querySelectorAll(".done"), function (l) {
+        var r = right.querySelector('[data-i="' + l.getAttribute("data-i") + '"]'), a = l.getBoundingClientRect(), c = r.getBoundingClientRect();
+        var ln = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        ln.setAttribute("x1", a.right - box.left); ln.setAttribute("y1", a.top + a.height / 2 - box.top);
+        ln.setAttribute("x2", c.left - box.left); ln.setAttribute("y2", c.top + c.height / 2 - box.top);
+        lines.appendChild(ln);
+      });
+    }
+    function status() {
+      score.textContent = "已配對 " + done + " / " + items.length + "，配錯 " + miss + " 次";
+      res.hidden = done < items.length;
+      res.textContent = miss ? "配完了。配錯的那幾項回課文看一次，再洗牌重做。" : "全對。隔一段時間再洗牌做一次，記得更牢。";
+    }
+    function pick(b) {
+      if (!picked || picked.parentNode === b.parentNode) { if (picked) picked.classList.remove("sel"); picked = picked === b ? null : b; if (picked) b.classList.add("sel"); return; }
+      if (picked.getAttribute("data-i") === b.getAttribute("data-i")) {
+        picked.classList.remove("sel"); picked.classList.add("done"); b.classList.add("done"); picked.disabled = b.disabled = true; picked = null; done++; draw();
+      } else { miss++; b.classList.add("wrong"); setTimeout(function () { b.classList.remove("wrong"); }, 600); }
+      status();
+    }
+    function cell(i, side) { var b = h("button", { type: "button", class: "mt-item", "data-i": String(i), onclick: function () { pick(b); } }, inline(items[i][side])); return b; }
+    function start() {
+      picked = null; done = 0; miss = 0;
+      left.replaceChildren.apply(left, order().map(function (i) { return cell(i, 0); }));
+      right.replaceChildren.apply(right, order().map(function (i) { return cell(i, 1); }));
+      draw(); status();
+    }
+    if (window.ResizeObserver) new ResizeObserver(draw).observe(board);
+    start();
+    return h("div", null, h("div", { class: "mt-top" }, score, h("button", { type: "button", class: "mt-again", text: "重新洗牌", onclick: start })), board, res);
   }
   function renderBlock(b, fill) {
     var fig = h("figure", { class: "fig fig-" + b.kind });
@@ -1557,6 +1598,8 @@
         fl.appendChild(h("div", { class: "step" }, st, sd));
       });
       fig.appendChild(fl);
+    } else if (b.kind === "match") {
+      fig.appendChild(matchBoard(b.items));
     } else {
       var ol = h("ol", { class: "tl" });
       b.items.forEach(function (it) {
@@ -1574,6 +1617,7 @@
     var blk = parseBlock(raw);
     if (blk) {
       blk.plain = ""; blk.bold = [];
+      if (blk.kind === "match") return blk;
       if (blk.kind === "table") { blk.cells = []; blk.rows.forEach(function (r) { r.forEach(function (c) { var o = boldOf(c), st = blk.plain.length; o.bold.forEach(function (x) { blk.bold.push([x[0] + st, x[1] + st]); }); blk.cells.push([st, o.plain.length]); blk.plain += o.plain + "\n"; }); }); }
       else {   // 流程、時間軸：每個步驟／年份與說明各算一格，也能畫線
         blk.cells = [];
@@ -1620,6 +1664,7 @@
     return [].map.call(art.children, function (el) {
       var t = el.tagName === "FIGURE" ? (/fig-table/.test(el.className) ? ((el.querySelector("figcaption") || {}).textContent ? "表格：" + el.querySelector("figcaption").textContent : "") : el.textContent) : el.textContent;
       if (/fig-svg/.test(el.className)) t = el.querySelector(".svgbox").getAttribute("aria-label");
+      if (/fig-match/.test(el.className)) t = "";   // 連連看是洗牌過的選項，不朗讀
       return { el: el, t: (t || "").replace(/\s+/g, " ").trim() };
     });
   }
@@ -1787,7 +1832,7 @@
         h("span", { class: "chips sm" }, h("button", { class: "chip", text: "🔊 朗讀", onclick: function () { ttsStart(art, 0); } }), fsChip("小", 16), fsChip("中", 18), fsChip("大", 20))),
       h("div", { class: "small", text: "長按選字，就能畫重點或寫備註。點畫過的字可修改。🔊 朗讀：連點兩下某段可從那段開始讀。" }));
     paint();
-    art.addEventListener("dblclick", function (ev) { var w = window.getSelection(); if (w) w.removeAllRanges(); var c = ev.target.closest ? ev.target.closest(".art > *") : null; if (!c) return; var i = [].indexOf.call(art.children, c); if (i >= 0) ttsStart(art, i); });
+    art.addEventListener("dblclick", function (ev) { if (ev.target.closest && ev.target.closest(".fig-match")) return; var w = window.getSelection(); if (w) w.removeAllRanges(); var c = ev.target.closest ? ev.target.closest(".art > *") : null; if (!c) return; var i = [].indexOf.call(art.children, c); if (i >= 0) ttsStart(art, i); });
     // 分階段的科目：主按鈕是本節該階段的題，全部題目放在旁邊
     var stg = hasStage(sid) ? stageNow() : 0, tk = "t:" + sid + ":" + cid + ":" + stg + ":" + xid, ts = stg ? getSet(tk) : null, tn = ts ? ts.items.length : 0;
     var tail = h("div", { class: "card" }, h("div", { class: "h2", text: "讀完這節，寫考古題" }),
