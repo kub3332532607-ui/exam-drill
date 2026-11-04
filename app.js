@@ -3,7 +3,7 @@
   var KS = window.KS, LET = ["A", "B", "C", "D"];
   var app = document.getElementById("app");
   // 版本號：和 sw.js 的 VER 保持一致，改程式時兩邊一起加一
-  var APP_VER = "ks-v53", APP_DATE = "2026-11-04";
+  var APP_VER = "ks-v54", APP_DATE = "2026-11-04";
 
   // ---------- 儲存 ----------
   var KEY = "ks_v1";
@@ -1511,7 +1511,7 @@
   function paras(sec) { return sec.text || sec.body || []; }
   // 圖表區塊（不能畫線，但算段落序號）：
   //  表格："表｜標題\n| 欄 | 欄 |\n|---|---|\n| 格 | 格 |"（標題可省略，直接以「| 」開頭）
-  //  流程："::flow 標題\n步驟｜說明\n步驟｜說明"　時間軸："::timeline 標題\n年份｜事件"　向量圖："::svg 圖名 標題\n文字說明"（圖在 data/figs.js）　連連看："::match 標題\n左｜右"（不能畫線，也不參與畫線比對）
+  //  流程："::flow 標題\n步驟｜說明\n步驟｜說明"　時間軸："::timeline 標題\n年份｜事件"　向量圖："::svg 圖名 標題\n文字說明"（圖在 data/figs.js）　連連看："::match 標題\n左｜右"　分類題："::sort 標題\n卡片｜類別｜理由"（這兩種不能畫線，也不參與畫線比對）
   function parseBlock(raw) {
     var lines = raw.split("\n"), cap = "";
     if (raw.slice(0, 2) === "表｜" || raw.slice(0, 2) === "| ") {
@@ -1522,7 +1522,8 @@
     }
     var s = /^::svg (\S+) ?(.*)$/.exec(lines[0]);
     if (s) return { kind: "svg", key: s[1], cap: s[2], alt: lines.slice(1).join(" "), items: [] };
-    var m = /^::(flow|timeline|match) ?(.*)$/.exec(lines[0]);
+    var m = /^::(flow|timeline|match|sort) ?(.*)$/.exec(lines[0]);
+    if (m && m[1] === "sort") return { kind: "sort", cap: m[2], items: lines.slice(1).filter(Boolean).map(function (l) { return l.split("｜"); }) };
     if (m) return { kind: m[1], cap: m[2], items: lines.slice(1).filter(Boolean).map(function (l) { var i = l.indexOf("｜"); return i < 0 ? [l, ""] : [l.slice(0, i), l.slice(i + 1)]; }) };
     return null;
   }
@@ -1572,6 +1573,53 @@
     start();
     return h("div", null, h("div", { class: "mt-top" }, score, h("button", { type: "button", class: "mt-again", text: "重新洗牌", onclick: start })), board, res);
   }
+  // 分類題：卡片洗牌後一次出一張，點它屬於哪一類。對了收進該類，錯了標出正確類別與理由，這張排到最後再出一次。結果不記錄，重畫或離開這節就重來。
+  function sortBoard(items) {
+    var cats = [], queue = [], done = 0, miss = 0, cur = null;
+    items.forEach(function (it) { if (cats.indexOf(it[1]) < 0) cats.push(it[1]); });
+    var score = h("span", { "aria-live": "polite" }), res = h("p", { class: "mt-res", "aria-live": "polite", hidden: true });
+    var card = h("div", { class: "srt-card" }), note = h("p", { class: "srt-note", "aria-live": "polite" }), next = h("button", { type: "button", class: "mt-again srt-next", text: "下一張", hidden: true, onclick: function () { deal(); } });
+    var bins = cats.map(function (c) {
+      var chips = h("span", { class: "srt-chips" }), b = h("button", { type: "button", class: "srt-bin", onclick: function () { pick(c, b); } }, h("span", { class: "srt-name", text: c }), chips);
+      b.chips = chips; return b;
+    });
+    function status() {
+      score.textContent = "已分類 " + done + " / " + items.length + "，答錯 " + miss + " 次";
+      res.hidden = done < items.length;
+      res.textContent = miss ? "分完了。答錯的那幾項回課文看一次，再洗牌重做。" : "全對。隔一段時間再洗牌做一次，記得更牢。";
+    }
+    function why(it) { return it[2] ? "：" + it[2] : ""; }
+    function deal() {
+      next.hidden = true;
+      bins.forEach(function (b) { b.classList.remove("wrong", "right"); b.disabled = !queue.length; });
+      cur = queue.shift() || null;
+      card.hidden = !cur;
+      if (cur) { card.replaceChildren(inline(cur[0])); }
+    }
+    function pick(c, b) {
+      if (!cur) return;
+      if (c === cur[1]) {
+        b.chips.appendChild(h("span", { class: "srt-chip" }, inline(cur[0])));
+        note.className = "srt-note ok"; note.textContent = "✓ " + cur[0].split("**").join("") + why(cur);
+        done++; deal();
+      } else {
+        miss++; queue.push(cur);
+        bins.forEach(function (x, i) { x.disabled = true; if (cats[i] === cur[1]) x.classList.add("right"); });
+        b.classList.add("wrong");
+        note.className = "srt-note bad"; note.textContent = "✗ " + cur[0].split("**").join("") + " 是「" + cur[1] + "」" + why(cur);
+        cur = null; next.hidden = false;
+      }
+      status();
+    }
+    function start() {
+      queue = items.slice(); done = 0; miss = 0; note.className = "srt-note"; note.textContent = "";
+      for (var i = queue.length - 1; i > 0; i--) { var j = Math.floor(Math.random() * (i + 1)), t = queue[i]; queue[i] = queue[j]; queue[j] = t; }
+      bins.forEach(function (b) { b.chips.textContent = ""; });
+      deal(); status();
+    }
+    start();
+    return h("div", null, h("div", { class: "mt-top" }, score, h("button", { type: "button", class: "mt-again", text: "重新洗牌", onclick: start })), card, note, next, h("div", { class: "srt-bins" }, bins), res);
+  }
   function renderBlock(b, fill) {
     var fig = h("figure", { class: "fig fig-" + b.kind });
     if (b.cap) { if (fill && b.capCell) { var fc = h("figcaption"); fill(fc, b.capCell); fig.appendChild(fc); } else fig.appendChild(h("figcaption", { text: b.cap })); }
@@ -1600,6 +1648,8 @@
       fig.appendChild(fl);
     } else if (b.kind === "match") {
       fig.appendChild(matchBoard(b.items));
+    } else if (b.kind === "sort") {
+      fig.appendChild(sortBoard(b.items));
     } else {
       var ol = h("ol", { class: "tl" });
       b.items.forEach(function (it) {
@@ -1617,7 +1667,7 @@
     var blk = parseBlock(raw);
     if (blk) {
       blk.plain = ""; blk.bold = [];
-      if (blk.kind === "match") return blk;
+      if (blk.kind === "match" || blk.kind === "sort") return blk;
       if (blk.kind === "table") { blk.cells = []; blk.rows.forEach(function (r) { r.forEach(function (c) { var o = boldOf(c), st = blk.plain.length; o.bold.forEach(function (x) { blk.bold.push([x[0] + st, x[1] + st]); }); blk.cells.push([st, o.plain.length]); blk.plain += o.plain + "\n"; }); }); }
       else {   // 流程、時間軸：每個步驟／年份與說明各算一格，也能畫線
         blk.cells = [];
@@ -1665,7 +1715,7 @@
     return [].map.call(art.children, function (el) {
       var t = el.tagName === "FIGURE" ? (/fig-table/.test(el.className) ? ((el.querySelector("figcaption") || {}).textContent ? "表格：" + el.querySelector("figcaption").textContent : "") : el.textContent) : el.textContent;
       if (/fig-svg/.test(el.className)) t = el.querySelector(".svgbox").getAttribute("aria-label");
-      if (/fig-match/.test(el.className)) t = "";   // 連連看是洗牌過的選項，不朗讀
+      if (/fig-match|fig-sort/.test(el.className)) t = "";   // 連連看、分類題是洗牌過的選項，不朗讀
       return { el: el, t: (t || "").replace(/\s+/g, " ").trim() };
     });
   }
@@ -1833,7 +1883,7 @@
         h("span", { class: "chips sm" }, h("button", { class: "chip", text: "🔊 朗讀", onclick: function () { ttsStart(art, 0); } }), fsChip("小", 16), fsChip("中", 18), fsChip("大", 20))),
       h("div", { class: "small", text: "長按選字，就能畫重點或寫備註。點畫過的字可修改。🔊 朗讀：連點兩下某段可從那段開始讀。" }));
     paint();
-    art.addEventListener("dblclick", function (ev) { if (ev.target.closest && ev.target.closest(".fig-match")) return; var w = window.getSelection(); if (w) w.removeAllRanges(); var c = ev.target.closest ? ev.target.closest(".art > *") : null; if (!c) return; var i = [].indexOf.call(art.children, c); if (i >= 0) ttsStart(art, i); });
+    art.addEventListener("dblclick", function (ev) { if (ev.target.closest && ev.target.closest(".fig-match, .fig-sort")) return; var w = window.getSelection(); if (w) w.removeAllRanges(); var c = ev.target.closest ? ev.target.closest(".art > *") : null; if (!c) return; var i = [].indexOf.call(art.children, c); if (i >= 0) ttsStart(art, i); });
     // 分階段的科目：主按鈕是本節該階段的題，全部題目放在旁邊
     var stg = hasStage(sid) ? stageNow() : 0, tk = "t:" + sid + ":" + cid + ":" + stg + ":" + xid, ts = stg ? getSet(tk) : null, tn = ts ? ts.items.length : 0;
     var tail = h("div", { class: "card" }, h("div", { class: "h2", text: "讀完這節，寫考古題" }),
