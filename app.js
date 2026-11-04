@@ -3,7 +3,7 @@
   var KS = window.KS, LET = ["A", "B", "C", "D"];
   var app = document.getElementById("app");
   // 版本號：和 sw.js 的 VER 保持一致，改程式時兩邊一起加一
-  var APP_VER = "ks-v57", APP_DATE = "2026-11-04";
+  var APP_VER = "ks-v58", APP_DATE = "2026-11-04";
 
   // ---------- 儲存 ----------
   var KEY = "ks_v1";
@@ -335,6 +335,13 @@
       h("div", { class: "goal-b" }, h("i", { style: "width:" + pct + "%" })),
       h("div", { class: "small", text: msg }));
   }
+  // 今天這科做了幾題（看每題最後作答時間）
+  function doneToday(sid, today) {
+    var ex = {}, n = 0;
+    KS.exams.forEach(function (e) { if (e.subject === sid) ex[e.id] = 1; });
+    Object.keys(S.stats).forEach(function (k) { var x = S.stats[k]; if (x.ts && (x.c || x.w) && ex[k.slice(0, k.lastIndexOf("#"))] && ymd(new Date(x.ts)) === today) n++; });
+    return n;
+  }
   function planTasks() {
     var d0 = new Date(), dow = d0.getDay(), today = ymd(d0), T = [];
     var wb = wrongBySubject(), top = Object.keys(wb.m).sort(function (a, b) { return wb.m[b] - wb.m[a]; })[0];
@@ -369,7 +376,7 @@
     }
     var phase = today < "2026-11-23" ? "A" : today < "2026-12-02" ? "B" : today < "2026-12-05" ? "C" : today <= EXAM_END ? "X" : daysTo("2027-04-01") > 0 ? 2 : 3;
     if (phase === "A") {
-      // 地特前補強：保底＝單字＋今天排的章（讀完整章才算完成，含落後章）；週日緩衝日補落後＋錯題＋國文測驗；加碼＝刷題、英文考卷、作文
+      // 地特前補強：保底＝單字＋今天排的章（讀完整章才算完成，含落後章）＋輪流的考題（一三五英文考卷，二四六日國文測驗）＋週三作文大綱；週日緩衝日另補落後＋錯題；加碼＝刷題、其他天的英文考卷、週六作文
       var L = schedList(today), isBuf = (SC.buf || []).indexOf(today) >= 0, pl0 = S.plan[today] = S.plan[today] || {}, todays = [];
       vocab0(20);
       L.forEach(function (ci) {
@@ -387,7 +394,6 @@
       }
       if (isBuf) {
         add("wk", "錯題總複習", wb.tot ? "本週錯題回頭看，" + subj(top).name + " 最多" : "挑本週最弱的一科回頭看", wb.tot ? "#/s/" + top + "/wr" : "#/", 40, 0, top || "");
-        add("chn", "國文測驗 15 題", "字音字形、成語、閱讀", "#/s/chn/ex", 25, 0, "chn");
       }
       // 選擇題：12/5 前每章只做約三成（未做優先），其餘留到 7 月；一次最多 25 題
       var tchs = todays.filter(function (ci) { return !hasStage(ci.sid); }), tch = tchs.filter(function (ci) { return !ci.done; })[0] || tchs[0];
@@ -397,10 +403,14 @@
         else if (!tot) add("q2:" + tch.key, "今天章節的題目", "本章沒有對應題目，改做考卷 15 題", "#/s/" + tch.sid + "/ex", 20, 1, tch.sid);
       }
       stageTasks(1, 25);
-      add("eng", "英文考卷一份", "單字掌握約 9 成的那份，20–30 題，寫完看本題單字", "#/s/eng/ex", 30, 1, "eng");
+      // 考題輪流進保底：寫滿題數自動打勾（手動取消過就不再勾）
+      var engDay = dow % 2 === 1, engN = doneToday("eng", today), chnN = doneToday("chn", today), pl1 = S.plan[today] = S.plan[today] || {};
+      [["eng", engN, 20], ["chn", chnN, 15]].forEach(function (a) { if (a[1] >= a[2] && !pl1[a[0]] && !(pl1._u && pl1._u[a[0]])) { pl1[a[0]] = Date.now(); pl1._t = Date.now(); save(); } });
+      add("eng", "英文考卷一份", "單字掌握約 9 成的那份，20–30 題，寫完看本題單字" + (engN ? "（今天已做 " + engN + " 題）" : ""), "#/s/eng/ex", 30, engDay ? 0 : 1, "eng");
+      if (!engDay) add("chn", "國文測驗 15 題", "字音字形、成語、閱讀" + (chnN ? "（今天已做 " + chnN + " 題）" : ""), "#/s/chn/ex", 25, 0, "chn");
       esDue().slice(0, 1).forEach(function (x) { add("esr", "申論閉卷重寫", x.src + "：兩天前寫過，今天不看書重寫（約 25 分）", "#/es/" + x.id, 25, 1, x.subject); });
       if (dow === 6) add("es", "國文作文一篇", "限時 60 分鐘，寫完拍照或打字存下", "#/s/chn", 60, 1, "chn");
-      if (dow === 3) add("es", "作文大綱＋第一段", "挑一題歷屆題目，20 分鐘", "#/s/chn", 20, 1, "chn");
+      if (dow === 3) add("es", "作文大綱＋第一段", "挑一題歷屆題目，20 分鐘", "#/s/chn", 20, 0, "chn");
       if (wb.tot && !isBuf) add("wr", "錯題複習", "共 " + wb.tot + " 題，" + subj(top).name + " 最多", "#/s/" + top + "/wr", 20, 1, top);
     } else if (phase === "B") {
       // 模擬期：每天一份考卷計時寫，寫完檢討
