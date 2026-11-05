@@ -3,20 +3,20 @@
   var KS = window.KS, LET = ["A", "B", "C", "D"];
   var app = document.getElementById("app");
   // 版本號：和 sw.js 的 VER 保持一致，改程式時兩邊一起加一
-  var APP_VER = "ks-v61", APP_DATE = "2026-11-05";
+  var APP_VER = "ks-v62", APP_DATE = "2026-11-05";
 
   // ---------- 儲存 ----------
   var KEY = "ks_v1";
   // marks：課文畫線 {節id: [{id,p,q,o,note,rep,sent,ts}]}；repq：題目訂正要回報 {題id: {sent,ts}}；read：閱讀設定
   // qm：題目劃記與訂正畫線、qx：刪去法（見「題目劃記」）；nts：題目訂正的修改時間；del：已刪除畫線的墓碑 {畫線id: 時間}（同步時避免已刪的畫線復活）
-  var S = { stats: {}, attempts: [], notes: {}, nts: {}, essay: {}, theme: "", print: {}, marks: {}, repq: {}, read: {}, del: {}, qm: {}, qx: {}, pos: {}, plan: {}, vw: {}, tl: {}, run: null };
+  var S = { stats: {}, attempts: [], notes: {}, nts: {}, essay: {}, theme: "", print: {}, marks: {}, repq: {}, read: {}, del: {}, qm: {}, qx: {}, pos: {}, plan: {}, vw: {}, tl: {}, gm: {}, run: null };
   function load() {
     try { var j = JSON.parse(localStorage.getItem(KEY)); if (j) S = Object.assign(S, j); } catch (e) {}
     migrate();
   }
   function migrate() {
     S.attempts.forEach(function (a) { if (!a.set && a.exam) a.set = "e:" + a.exam; });
-    S.essay = S.essay || {}; S.print = S.print || {}; S.marks = S.marks || {}; S.repq = S.repq || {}; S.read = S.read || {}; S.nts = S.nts || {}; S.del = S.del || {}; S.qm = S.qm || {}; S.qx = S.qx || {}; S.pos = S.pos || {}; S.plan = S.plan || {}; S.vw = S.vw || {}; S.tl = S.tl || {};
+    S.gm = S.gm || {}; S.essay = S.essay || {}; S.print = S.print || {}; S.marks = S.marks || {}; S.repq = S.repq || {}; S.read = S.read || {}; S.nts = S.nts || {}; S.del = S.del || {}; S.qm = S.qm || {}; S.qx = S.qx || {}; S.pos = S.pos || {}; S.plan = S.plan || {}; S.vw = S.vw || {}; S.tl = S.tl || {};
   }
   // 離開前提醒：只看會同步的欄位，和「上次雲端同步完」的內容比；計時心跳這類只存本機的變動不算
   var SIGK = "ks_sig";
@@ -877,6 +877,9 @@
     seg.appendChild(h("a", { href: "#/s/" + sid + "/wr", "aria-current": String(tab === "wr"), text: "錯題" }));
     var body = h("div", { class: "rows" });
     if (tab === "ch") {
+      var gmAll = gmCases(sid, "all");
+      if (gmAll.length) body.appendChild(h("a", { class: "row", href: "#/gm/" + sid },
+        h("div", null, h("div", { class: "nm", text: "釋字法庭" }), h("div", { class: "sub", text: "背釋字的推理遊戲・已熟 " + gmDone(gmAll) + "/" + gmAll.length })), h("span", { class: "go", text: "›" })));
       chs.forEach(function (c, i) {
         var set = getSet("c:" + sid + ":" + c.id), ct = counts(set.items), es = setEssays(set.key);
         var esDone = es.filter(function (x) { return S.essay[x.id] && S.essay[x.id].rate; }).length;
@@ -2218,6 +2221,8 @@
       h("a", { class: "btn soft", href: "#/print/" + key, text: "列印本節" }),
       h("a", { class: "btn soft", href: "#/g/" + key, text: "對答案" })])));
     if (es.length) { var el2 = h("div", { class: "sec-links" }); es.forEach(function (x) { el2.appendChild(h("a", { class: "pill", href: "#/es/" + x.id, text: (isWriting(x) ? "作文 " : "申論 ") + x.src })); }); tail.appendChild(el2); }
+    var gmSec = gmCases(sid, xid);
+    if (gmSec.length) tail.appendChild(h("div", { class: "btns" }, h("a", { class: "btn soft", href: "#/gmp/" + sid + "/" + xid + "/w", text: "本節釋字法庭 " + gmSec.length + " 案（已熟 " + gmDone(gmSec) + "）" })));
     var nav = h("div", { class: "btns rd-nav" },
       si > 0 ? h("a", { class: "btn soft", href: "#/rd/" + sid + "/" + cid + "/" + secs[si - 1].id, text: "‹ 上一節" }) : h("a", { class: "btn soft", href: "#/c/" + sid + "/" + cid, text: "‹ 章節目錄" }),
       si < secs.length - 1 ? h("a", { class: "btn soft", href: "#/rd/" + sid + "/" + cid + "/" + secs[si + 1].id, text: "下一節 ›" }) : h("a", { class: "btn soft", href: "#/c/" + sid + "/" + cid, text: "本章考古題 ›" }));
@@ -2528,12 +2533,168 @@
   }
 
   // ---------- 路由 ----------
+  // ---------- 釋字法庭：看事實押注，再判結果、選理由、認號次。資料在 data/game.js，進度在 S.gm（會同步）。 ----------
+  var GM = null;   // 進行中的一輪只放記憶體；回課文再回來可以接續，重新整理就重開
+  var GM_AO = ["合憲", "違憲"];
+  function gmCh(c) { return c.sec.replace(/s\d+$/, ""); }
+  function gmCases(sid, scope) {
+    return ((KS.game || {}).cases || []).filter(function (c) { return c.sid === sid && (scope === "all" || c.sec === scope || gmCh(c) === scope); });
+  }
+  function gmIsOk(c) { var g = S.gm[c.id]; return !!(g && g.m); }
+  function gmDone(list) { return list.filter(gmIsOk).length; }
+  function gmShuffle(a) { a = a.slice(); for (var i = a.length - 1; i > 0; i--) { var j = Math.floor(Math.random() * (i + 1)), t = a[i]; a[i] = a[j]; a[j] = t; } return a; }
+  function gmById(id) { return ((KS.game || {}).cases || []).filter(function (c) { return c.id === id; })[0]; }
+  function gmScopeName(sid, scope) {
+    if (scope === "all") return "全部";
+    var cs = chapters(sid), i, x;
+    for (i = 0; i < cs.length; i++) { if (cs[i].id === scope) return "第 " + (i + 1) + " 章 " + cs[i].title; x = section(sid, cs[i].id, scope); if (x) return x.title; }
+    return "";
+  }
+  function viewGame(sid) {
+    var all = gmCases(sid, "all"), done = gmDone(all), rows = h("div", { class: "rows" });
+    chapters(sid).forEach(function (c, i) {
+      var l = gmCases(sid, c.id); if (!l.length) return;
+      rows.appendChild(h("a", { class: "row", href: "#/gmp/" + sid + "/" + c.id + "/w" },
+        h("div", null, h("div", { class: "small", text: "第 " + (i + 1) + " 章" }), h("div", { class: "nm", text: c.title }), h("div", { class: "sub", text: "已熟 " + gmDone(l) + "/" + l.length })),
+        h("span", { class: "go", text: "›" })));
+    });
+    show(topbar("#/s/" + sid, subj(sid).name),
+      h("div", { class: "card" }, h("div", { class: "title", text: "釋字法庭" }),
+        h("div", { class: "muted", text: "先看事實押注，再判結果、選理由、認號次。三項都對才算熟，答錯的案子會再回來。" }),
+        h("div", { class: "goal-b gm-meter" }, h("i", { style: "width:" + (done / all.length * 100) + "%" })),
+        h("div", { class: "small", text: "已熟 " + done + "/" + all.length + " 案" }),
+        h("div", { class: "btns" },
+          h("a", { class: "btn", href: "#/gmp/" + sid + "/all/w", text: done < all.length ? "只練還沒熟的 " + (all.length - done) + " 案" : "全部都熟了，再練一輪" }),
+          h("a", { class: "btn soft", href: "#/gmp/" + sid + "/all/a", text: "全部 " + all.length + " 案", onclick: function () { GM = null; } }))),
+      h("div", { class: "card" }, h("div", { class: "h2", text: "依章練習" }), rows));
+  }
+  function gmStart(sid, scope, mode, key) {
+    var list = gmCases(sid, scope), pool = mode === "a" ? list : list.filter(function (c) { return !gmIsOk(c); });
+    if (!pool.length) pool = list;
+    var ids = {}; list.forEach(function (c) { ids[c.id] = 1; });
+    var q = gmShuffle(pool).map(function (c) { return { c: c }; });
+    gmShuffle(((KS.game || {}).twins || []).filter(function (t) { return ids[t.a] && ids[t.b]; })).forEach(function (t, i) { q.splice(Math.min(q.length, (i + 1) * 5), 0, { t: t }); });
+    GM = { key: key, sid: sid, scope: scope, mode: mode, q: q, total: q.length, score: 0, streak: 0, cur: null };
+    gmNext();
+  }
+  function gmNext() {
+    var it = GM.q.shift();
+    if (!it) { GM.cur = null; return; }
+    var cur = GM.cur = { it: it, step: "bet", bet: 0 };
+    if (it.c) { cur.ao = it.c.ao ? gmShuffle(it.c.ao) : GM_AO; cur.rs = gmShuffle([it.c.w].concat(it.c.d)); cur.ns = gmShuffle(it.c.n); }
+    else { cur.flip = Math.random() < .5; cur.rs = gmShuffle([it.t.w].concat(it.t.d)); }
+  }
+  function viewGamePlay(sid, scope, mode) {
+    var key = [sid, scope, mode].join("|");
+    if (!GM || GM.key !== key || !GM.cur) gmStart(sid, scope, mode, key);
+    gmDraw();
+  }
+  function gmSettle(right, c) {
+    var cur = GM.cur; cur.right = right; cur.step = "done";
+    GM.score += right ? cur.bet : -cur.bet; GM.streak = right ? GM.streak + 1 : 0;
+    if (c) { var g = S.gm[c.id] || { r: 0, w: 0 }; S.gm[c.id] = { m: right ? 1 : 0, r: g.r + (right ? 1 : 0), w: g.w + (right ? 0 : 1), ts: Date.now() }; save(); }
+    if (!right) GM.q.splice(Math.min(GM.q.length, 3), 0, cur.it);
+  }
+  function gmOpts(cls, list, step, ans, picked, onpick) {
+    var cur = GM.cur, live = cur.step === step, box = h("div", { class: cls });
+    list.forEach(function (t) {
+      var st = live ? "" : t === ans ? " ok" : t === cur[picked] ? " no" : "";
+      box.appendChild(h("button", { type: "button", class: "gm-o" + st, disabled: !live, text: t, onclick: live ? function () { cur[picked] = t; onpick(t); gmDraw(true); } : null }));
+    });
+    return box;
+  }
+  function gmDraw(keep) {
+    var sid = GM.sid, back = topbar("#/gm/" + sid, "釋字法庭");
+    var list = gmCases(sid, GM.scope);
+    var stat = h("div", { class: "gm-stat" }, h("span", { text: "分數 " + GM.score }), h("span", { text: "連對 " + GM.streak }), h("span", { text: "待審 " + GM.q.length }), h("span", { text: "已熟 " + gmDone(list) + "/" + list.length }));
+    if (!GM.cur) return gmEnd(back, stat);
+    var cur = GM.cur, it = cur.it, card = h("div", { class: "card gm-card" }), last = null;
+    function add(el) { card.appendChild(el); return el; }
+    function ruling() {
+      return h("div", { class: "gm-rule" }, h("div", { class: "gm-stamp " + (cur.right ? "good" : "bad"), text: cur.right ? "判決正確 +" + cur.bet : "發回重審 −" + cur.bet }));
+    }
+    function nextBtn() { return h("button", { type: "button", class: "btn gm-next", text: GM.q.length ? "下一案" : "看結果", onclick: function () { gmNext(); window.scrollTo(0, 0); gmDraw(); } }); }
+    function betRow() {
+      add(h("p", { class: "gm-q", text: "你有多確定？" }));
+      var r = h("div", { class: "gm-row" });
+      [[1, "有點猜 ±1"], [2, "還算確定 ±2"], [3, "很確定 ±3"]].forEach(function (x) { r.appendChild(h("button", { type: "button", class: "gm-o", text: x[1], onclick: function () { cur.bet = x[0]; cur.step = "v"; gmDraw(true); } })); });
+      add(r);
+    }
+    if (it.c) {
+      var c = it.c;
+      add(h("div", { class: "eyebrow", text: "案件" }));
+      add(h("p", { class: "gm-fact", text: c.f }));
+      if (cur.step === "bet") betRow();
+      else {
+        add(h("div", { class: "small", text: "押注 " + cur.bet + " 分" }));
+        last = add(h("p", { class: "gm-q", text: "一、大法官怎麼判？" }));
+        add(gmOpts(cur.ao.join("").length > 12 ? "gm-col" : "gm-row", cur.ao, "v", c.a, "pv", function () { cur.step = "r"; }));
+        if (cur.step !== "v") {
+          last = add(h("p", { class: "gm-q", text: "二、理由是哪一個？" }));
+          add(gmOpts("gm-col", cur.rs, "r", c.w, "pr", function () { cur.step = "n"; }));
+        }
+        if (cur.step === "n" || cur.step === "done") {
+          last = add(h("p", { class: "gm-q", text: "三、這是哪一號？" }));
+          add(gmOpts("gm-row", cur.ns, "n", c.k, "pn", function () {
+            gmSettle(cur.pv === c.a && cur.pr === c.w && cur.pn === c.k, c);
+          }));
+        }
+        if (cur.step === "done") {
+          var R = ruling(), miss = [];
+          if (cur.pv !== c.a) miss.push("結果");
+          if (cur.pr !== c.w) miss.push("理由");
+          if (cur.pn !== c.k) miss.push("號次");
+          R.appendChild(h("p", { text: c.no + "：" + c.a + "。" + c.w }));
+          if (c.note) R.appendChild(h("p", { class: "muted", text: c.note }));
+          if (miss.length) R.appendChild(h("p", { class: "muted", text: "這次卡在：" + miss.join("、") + "。三項都對才算熟，這案稍後會再回來。" }));
+          R.appendChild(h("a", { class: "pill", href: "#/rd/" + sid + "/" + gmCh(c) + "/" + c.sec, text: "回課文看這一節 ›" }));
+          R.appendChild(nextBtn());
+          last = add(R);
+        }
+      }
+    } else {
+      var t = it.t, A = gmById(cur.flip ? t.b : t.a), B = gmById(cur.flip ? t.a : t.b), bad = cur.flip ? "甲" : "乙";
+      add(h("div", { class: "eyebrow", text: "雙胞胎案：看起來像，結果相反" }));
+      add(h("div", { class: "gm-twin" }, h("p", { text: "甲：" + A.f }), h("p", { text: "乙：" + B.f })));
+      if (cur.step === "bet") betRow();
+      else {
+        add(h("div", { class: "small", text: "押注 " + cur.bet + " 分" }));
+        last = add(h("p", { class: "gm-q", text: "一、" + (t.ask || "哪一案違憲？") }));
+        add(gmOpts("gm-row", ["甲", "乙"], "v", bad, "pv", function () { cur.step = "r"; }));
+        if (cur.step !== "v") {
+          last = add(h("p", { class: "gm-q", text: "二、" + t.q }));
+          add(gmOpts("gm-col", cur.rs, "r", t.w, "pr", function () { gmSettle(cur.pv === bad && cur.pr === t.w, null); }));
+        }
+        if (cur.step === "done") {
+          var R2 = ruling();
+          R2.appendChild(h("p", { text: "甲是" + A.no + "（" + A.a + "），乙是" + B.no + "（" + B.a + "）。" + t.w }));
+          R2.appendChild(nextBtn());
+          last = add(R2);
+        }
+      }
+    }
+    show(back, stat, card);
+    if (keep && last && last.scrollIntoView) last.scrollIntoView({ block: "nearest" });
+  }
+  function gmEnd(back, stat) {
+    var sid = GM.sid, list = gmCases(sid, GM.scope), tb = h("div", { class: "rows" });
+    list.forEach(function (c) {
+      var g = S.gm[c.id];
+      tb.appendChild(h("div", { class: "row" }, h("div", null, h("div", { class: "nm gm-nm", text: c.no }), h("div", { class: "sub", text: c.a + (g ? "・對 " + g.r + " 次、錯 " + g.w + " 次" : "") })),
+        h("span", { class: "pill " + (gmIsOk(c) ? "green" : "red"), text: gmIsOk(c) ? "已熟" : "再練" })));
+    });
+    function again(mode) { return function () { var sp = GM.scope, to = "#/gmp/" + sid + "/" + sp + "/" + mode; GM = null; if (location.hash === to) route(); else location.hash = to; }; }
+    show(back, stat, h("div", { class: "card" }, h("div", { class: "eyebrow", text: "本庭審結" }), h("div", { class: "title", text: gmScopeName(sid, GM.scope) }),
+      h("p", { text: "這一輪 " + GM.score + " 分，已熟 " + gmDone(list) + "/" + list.length + " 案。" }),
+      h("div", { class: "btns" }, h("button", { type: "button", class: "btn", text: "只練還沒熟的", onclick: again("w") }), h("button", { type: "button", class: "btn soft", text: "全部重來", onclick: again("a") })), tb));
+  }
+
   function route() {
     paceCache = {}; paceGen++;
     var p = (location.hash || "#/").replace(/^#\/?/, "").split("/").map(decodeURIComponent);
     window.scrollTo(0, 0); vHide();
     app.className = "v-" + (p[0] || "home");
-    var PAGES = { s: 1, c: 1, x: 1, p: 1, g: 1, r: 1, es: 1, rd: 1, rep: 1, sch: 1, print: 1 };
+    var PAGES = { s: 1, c: 1, x: 1, p: 1, g: 1, r: 1, es: 1, rd: 1, rep: 1, sch: 1, print: 1, gm: 1, gmp: 1 };
     setTabbar(PAGES[p[0]] ? null : (p[0] === "subjects" || p[0] === "wrong" || p[0] === "db" || p[0] === "settings" ? p[0] : ""));
     switch (p[0]) {
       case "subjects": return viewSubjects();
@@ -2548,6 +2709,8 @@
       case "r": if (getSet(p[1])) return viewResult(p[1]); break;
       case "es": if (essay(p[1])) return viewEssay(p[1]); break;
       case "rd": if (subj(p[1]) && section(p[1], p[2], p[3])) return viewRead(p[1], p[2], p[3]); break;
+      case "gm": if (subj(p[1]) && gmCases(p[1], "all").length) return viewGame(p[1]); break;
+      case "gmp": if (subj(p[1]) && gmCases(p[1], p[2]).length) return viewGamePlay(p[1], p[2], p[3]); break;
       case "rep": return viewReport();
       case "sch": return viewSchedule();
       case "print": if (getSet(p[1])) return viewPrint(p[1], p[2]); break;
