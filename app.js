@@ -3,11 +3,11 @@
   var KS = window.KS, LET = ["A", "B", "C", "D"];
   var app = document.getElementById("app");
   // 版本號：和 sw.js 的 VER 保持一致，改程式時兩邊一起加一
-  var APP_VER = "ks-v62", APP_DATE = "2026-11-05";
+  var APP_VER = "ks-v63", APP_DATE = "2026-11-05";
 
   // ---------- 儲存 ----------
   var KEY = "ks_v1";
-  // marks：課文畫線 {節id: [{id,p,q,o,note,rep,sent,ts}]}；repq：題目訂正要回報 {題id: {sent,ts}}；read：閱讀設定
+  // marks：課文畫線 {節id: [{id,p,q,o,note,rep,sent,ts}]}；repq：題目訂正要回報 {題id: {sent,off,ts}}（off＝移出清單）；read：閱讀設定
   // qm：題目劃記與訂正畫線、qx：刪去法（見「題目劃記」）；nts：題目訂正的修改時間；del：已刪除畫線的墓碑 {畫線id: 時間}（同步時避免已刪的畫線復活）
   var S = { stats: {}, attempts: [], notes: {}, nts: {}, essay: {}, theme: "", print: {}, marks: {}, repq: {}, read: {}, del: {}, qm: {}, qx: {}, pos: {}, plan: {}, vw: {}, tl: {}, gm: {}, run: null };
   function load() {
@@ -1411,10 +1411,10 @@
       }
       var cb = h("input", { type: "checkbox", onchange: function () {
         if (cb.checked) { if (!(S.notes[k] || "").trim()) { cb.checked = false; return toast("先寫訂正內容"); } S.repq[k] = { sent: false, ts: Date.now() }; toast("已加入回報清單"); }
-        else delete S.repq[k];
+        else S.repq[k] = { off: 1, ts: Date.now() };
         save();
       } });
-      cb.checked = !!(S.repq[k] && !S.repq[k].sent);
+      cb.checked = !!(S.repq[k] && !S.repq[k].sent && !S.repq[k].off);
       box.appendChild(h("label", { class: "rep-ck" }, cb, h("span", { text: "回報給 Claude，補進課文" })));
     }
     box._rf = render; render();
@@ -2153,8 +2153,8 @@
           if (mk.note !== ta.value.trim()) mk.mt = Date.now();
           mk.note = ta.value.trim();
           if (cb.checked && !mk.note) { toast("先寫備註，才能回報"); return; }
-          if (cb.checked && !(mk.rep && !mk.sent)) { mk.rep = true; mk.sent = false; mk.ts = Date.now(); }
-          if (!cb.checked && mk.rep && !mk.sent) mk.rep = false;
+          if (cb.checked && !(mk.rep && !mk.sent)) { mk.rep = true; mk.sent = false; mk.ts = mk.mt = Date.now(); }
+          if (!cb.checked && mk.rep && !mk.sent) { mk.rep = false; mk.mt = Date.now(); }
         }
         save(); sheet.remove(); paint();
       }
@@ -2315,7 +2315,7 @@
   function pendingReports() {
     var out = [];
     Object.keys(S.repq).forEach(function (k) {
-      var r = S.repq[k]; if (r.sent) return;
+      var r = S.repq[k]; if (r.sent || r.off) return;
       var it = itemsFromIds([k])[0]; if (!it) return;
       out.push({ type: "q", k: k, it: it, grp: secLabel(it.e.subject, it.q.ch, it.q.sec), note: S.notes[k] || "", ts: r.ts, r: r });
     });
@@ -2395,7 +2395,7 @@
       h("b", { text: "共 " + list.length + " 則、約 " + txt.length.toLocaleString() + " 字" }),
       h("div", { class: "small", text: big ? "一次送太多，建議用下面的「複製這章」分批送：每批 10–15 則或 6,000 字以內，最好同一章。" : "份量剛好，可以一次送出。建議每批 10–15 則或 6,000 字以內。" })));
     function markSent(sub) {
-      sub.forEach(function (x) { if (x.type === "q") x.r.sent = true; else x.m.sent = true; });
+      sub.forEach(function (x) { if (x.type === "q") { x.r.sent = true; x.r.ts = Date.now(); } else { x.m.sent = true; x.m.mt = Date.now(); } });
       save(); toast("已標為送出"); viewReport();
     }
     var ta = h("textarea", { class: "rep-txt", readonly: true }); ta.value = txt;
@@ -2421,7 +2421,7 @@
           h("div", { class: "q", text: x.type === "q" ? clip(x.it.q.q, 80) : "「" + clip(x.m.q, 80) + "」" }),
           h("div", { class: "n", text: clip(x.note, 300) }),
           h("button", { class: "link", text: "移出清單", onclick: function () {
-            if (x.type === "q") delete S.repq[x.k]; else x.m.rep = false;
+            if (x.type === "q") S.repq[x.k] = { off: 1, ts: Date.now() }; else { x.m.rep = false; x.m.mt = Date.now(); }
             save(); viewReport();
           } })));
       });

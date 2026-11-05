@@ -10,7 +10,7 @@
   function clone(x) { return JSON.parse(JSON.stringify(x)); }
   function pick(o) { var r = {}; FIELDS.forEach(function (k) { r[k] = o[k] === undefined ? (k === "attempts" ? [] : {}) : o[k]; }); return r; }
 
-  // 合併兩份進度。兩邊都改過同一筆時，取修改時間較新的；畫線與回報取聯集。
+  // 合併兩份進度。兩邊都改過同一筆時，取修改時間較新的；畫線取聯集。
   function merge(L, R) {
     L = pick(clone(L)); R = pick(clone(R));
     var out = clone(L), k;
@@ -44,7 +44,14 @@
     out.del = clone(L.del);
     Object.keys(R.del).forEach(function (id) { out.del[id] = Math.max(num(out.del[id]), num(R.del[id])); });
 
-    // 課文畫線（marks）與題目劃記（qm）：以 id 聯集，已刪的不復活；同一條兩邊都有時取較新（mt 或 ts）
+    // 課文畫線（marks）與題目劃記（qm）：以 id 聯集，已刪的不復活；同一條兩邊都有時取較新。
+    // 依序比 mt（備註與回報狀態的修改時間，舊資料沒有就用 ts）、ts；都相同時已送出的算數。
+    function newerMark(m, cur) {
+      var x = num(m.mt || m.ts), y = num(cur.mt || cur.ts);
+      if (x !== y) return x > y;
+      if (num(m.ts) !== num(cur.ts)) return num(m.ts) > num(cur.ts);
+      return !!m.sent && !cur.sent;
+    }
     function unionMarks(A, B) {
       var keys = {}, res = {}; Object.keys(A).concat(Object.keys(B)).forEach(function (x) { keys[x] = 1; });
       Object.keys(keys).forEach(function (mkey) {
@@ -53,7 +60,7 @@
           if (out.del[m.id]) return;
           var cur = byId[m.id];
           if (!cur) { byId[m.id] = m; order.push(m.id); }
-          else if (num(m.mt || m.ts) > num(cur.mt || cur.ts)) byId[m.id] = m;
+          else if (newerMark(m, cur)) byId[m.id] = m;
         });
         if (order.length) res[mkey] = order.map(function (id) { return byId[id]; });
       });
@@ -109,11 +116,10 @@
       if (!a || num(b.ts) > num(a.ts)) out.gm[id] = b;
     });
 
-    // 回報清單：聯集；任一邊已回報（sent）就算已回報
+    // 回報清單：每題取 ts 較新的（移出清單記為 off，不會被舊資料復活）；時間相同時 off、已送出的算數
     Object.keys(R.repq).forEach(function (q) {
-      var a = L.repq[q], b = R.repq[q];
-      if (!a) out.repq[q] = b;
-      else { var w = num(b.ts) > num(a.ts) ? b : a; out.repq[q] = Object.assign({}, w, { sent: !!(a.sent || b.sent) }); }
+      var a = L.repq[q], b = R.repq[q], x = num(a && a.ts), y = num(b.ts);
+      if (!a || y > x || (y === x && ((b.off && !a.off) || (b.sent && !a.sent && !a.off)))) out.repq[q] = b;
     });
     return out;
   }
