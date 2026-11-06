@@ -3,7 +3,7 @@
   var KS = window.KS, LET = ["A", "B", "C", "D"];
   var app = document.getElementById("app");
   // 版本號：和 sw.js 的 VER 保持一致，改程式時兩邊一起加一
-  var APP_VER = "ks-v63", APP_DATE = "2026-11-05";
+  var APP_VER = "ks-v64", APP_DATE = "2026-11-06";
 
   // ---------- 儲存 ----------
   var KEY = "ks_v1";
@@ -591,6 +591,7 @@
       extra.length ? h("div", { class: "tk-sec", text: "加碼（再多讀一點）" }) : null,
       extra.map(row),
       weekChart(P),
+      h("a", { class: "btn soft", href: "#/stats", text: "時間統計・熱力圖與分布 ›" }),
       P.phase === "A" || P.phase === "B" ? h("a", { class: "btn soft", href: "#/sch", text: "排程表・進度回報 ›" }) : null,
       coachLine(P),
       h("div", { class: "small", text: ok ? (tot >= dayGoal(P.date) ? "今天達標了，記得按一次雲端同步。" : "底線完成了，別停在這裡，再讀一章；結束前記得按一次雲端同步。") : tip }));
@@ -2532,6 +2533,166 @@
     show(topbar("#/", "排程表"), sum, list);
   }
 
+  // ---------- 時間統計頁 #/stats（只讀 S.tl 與 S.plan，不改同步格式） ----------
+  var stRange = 7;
+  var STN = { read: "讀課文", drill: "做題・複習", write: "寫作", voc: "單字", free: "自習", oth: "其他" };
+  function tlKind(k) {
+    if (!k) return "oth";
+    if (!k.indexOf("ch:")) return "read";
+    if (!k.indexOf("chq:") || /^(chn|eng|wr|rv|wk|hl)$/.test(k)) return "drill";
+    if (k === "es") return "write";
+    if (k === "voc") return "voc";
+    if (!k.indexOf("free:")) return "free";
+    return "oth";
+  }
+  function viewStats() {
+    var now = new Date(), today = ymd(now), logs = [], byDay = {}, first = today, WD = "日一二三四五六";
+    Object.keys(S.tl).forEach(function (id) {
+      var x = S.tl[id]; if (x.del || !x.d || !(x.m > 0)) return;
+      var o = { d: x.d, k: tlKind(x.k), sid: x.sid || "", m: x.m, ts: x.ts || 0 };
+      logs.push(o); var b = byDay[x.d] = byDay[x.d] || { m: 0, k: {} };
+      b.m += x.m; b.k[o.k] = (b.k[o.k] || 0) + x.m; if (x.d < first) first = x.d;
+    });
+    function dm(d) { return byDay[d] ? byDay[d].m : 0; }
+    function addDays(d, n) { var p = d.split("-"); return ymd(new Date(+p[0], +p[1] - 1, +p[2] + n)); }
+    function dowOf(d) { var p = d.split("-"); return new Date(+p[0], +p[1] - 1, +p[2]).getDay(); }
+    function monOf(d) { return addDays(d, -((dowOf(d) + 6) % 7)); }
+    function nameOf(s) { return s && subj(s) ? subj(s).name : "其他"; }
+    var from = stRange ? addDays(today, 1 - stRange) : first;
+    var rl = logs.filter(function (x) { return x.d >= from && x.d <= today; });
+    var rangeTxt = stRange === 7 ? "近 7 天" : stRange === 28 ? "近 4 週" : "全部時間";
+
+    // 今日概況
+    var yd = addDays(today, -1), td = dm(today), g = dayGoal(today), mon = monOf(today), wmin = 0, wgoal = 0, streak = 0, all = 0, ndays = 0, i, d;
+    for (d = mon; d <= today; d = addDays(d, 1)) { wmin += dm(d); wgoal += dayGoal(d); }
+    for (i = 0; i < 400; i++) { var pl = S.plan[addDays(today, -i)]; if (pl && pl._ok) streak++; else if (i === 0) continue; else break; }
+    Object.keys(byDay).forEach(function (k) { all += byDay[k].m; ndays++; });
+    function tile(v, l) { return h("div", { class: "st-tile" }, h("b", { text: v }), h("span", { text: l })); }
+    var diff = td - dm(yd);
+    var over = h("div", { class: "card" }, h("div", { class: "h2", text: "今日概況" }),
+      h("div", { class: "st-tiles" }, tile(fmtM(td), "今天"), tile(fmtM(wmin), "本週"), tile(streak + " 天", "連續保底"), tile(fmtM(all), "累計 " + ndays + " 天")),
+      h("div", { class: "small", text: "昨天 " + fmtM(dm(yd)) + (diff ? "，今天" + (diff > 0 ? "多" : "少") + " " + fmtM(Math.abs(diff)) : "，今天相同") + "。今日目標 " + fmtM(g) + (td >= g ? "，已達成。" : "，還差 " + fmtM(g - td) + "。") + "本週到今天的目標累計 " + fmtM(wgoal) + "，目前 " + fmtM(wmin) + "。" }));
+    var seg = h("div", { class: "chips" }, [[7, "7 天"], [28, "4 週"], [0, "全部"]].map(function (r) {
+      return h("button", { class: "chip", "aria-pressed": String(stRange === r[0]), text: r[1], onclick: function () { stRange = r[0]; var y = window.scrollY; route(); window.scrollTo(0, y); } });
+    }));
+
+    // A. 練習比例：每科的讀課文與做題；沒有課文的科目只顯示單色
+    var subs = {};
+    rl.forEach(function (x) { var o = subs[x.sid] = subs[x.sid] || { read: 0, drill: 0, oth: 0 }; if (x.k === "read") o.read += x.m; else if (x.k === "drill" || x.k === "write") o.drill += x.m; else o.oth += x.m; });
+    function t3(o) { return o.read + o.drill + o.oth; }
+    var sids = Object.keys(subs).sort(function (a, b) { return t3(subs[b]) - t3(subs[a]); });
+    var mx = Math.max.apply(null, sids.map(function (s) { return t3(subs[s]); }).concat([1]));
+    var cA = h("div", { class: "card" }, h("div", { class: "h2", text: "A．練習比例（" + rangeTxt + "）" }),
+      h("div", { class: "small", text: "實心＝讀課文，斜線＝做題・複習，淺色＝單字、自習等。沒有課文的科目只有斜線；後期以刷題為主，比例偏向做題是正常的。" }),
+      sids.length ? sids.map(function (s) {
+        var o = subs[s], T = t3(o), lab;
+        if (o.read && o.drill) lab = "課文 " + Math.round(o.read / (o.read + o.drill) * 100) + "%・做題 " + Math.round(o.drill / (o.read + o.drill) * 100) + "%";
+        else if (o.read) lab = "只有讀課文";
+        else if (o.drill) lab = chapters(s).length ? "只有做題" : "以做題為主";
+        else lab = "單字、自習等";
+        return h("div", { class: "st-row", style: "--c:" + (COL[s] || COL[""]) },
+          h("div", { class: "st-hd" }, h("b", { text: nameOf(s) }), h("span", { text: fmtM(T) + "　" + lab })),
+          h("div", { class: "st-bar", style: "width:" + Math.max(6, T / mx * 100) + "%" }, o.read ? h("i", { class: "rd", style: "flex:" + o.read }) : null, o.drill ? h("i", { class: "dr", style: "flex:" + o.drill }) : null, o.oth ? h("i", { class: "ot", style: "flex:" + o.oth }) : null));
+      }) : h("div", { class: "small", text: "這段期間還沒有記錄。" }));
+
+    // B. 日曆熱力圖
+    function dayText(ds) {
+      var b = byDay[ds], hd = md(ds) + "（週" + WD.charAt(dowOf(ds)) + "）";
+      if (ds > today) return hd + "還沒到";
+      if (!b) return hd + "沒有記錄";
+      return hd + fmtM(b.m) + "：" + Object.keys(b.k).sort(function (x, y) { return b.k[y] - b.k[x]; }).map(function (k) { return STN[k] + " " + fmtM(b.k[k]); }).join("、") + ((S.plan[ds] || {})._ok ? "　保底完成" : "");
+    }
+    var det = h("div", { class: "small st-det", text: dayText(today) });
+    var hs = monOf(first < (SC.from || today) ? first : (SC.from || today)), he = EXAM_END > today ? EXAM_END : today, cells = [], n = 0;
+    for (d = hs; d <= he || n % 7; d = addDays(d, 1), n++) {
+      (function (ds) {
+        var m = dm(ds), gl = dayGoal(ds), lv = !m ? 0 : m < gl * 0.25 ? 1 : m < gl * 0.5 ? 2 : m < gl * 0.75 ? 3 : 4;
+        cells.push(h("div", { class: "st-cell l" + lv + ((S.plan[ds] || {})._ok ? " ok" : "") + (ds > today ? " fut" : "") + (ds === today ? " now" : ""), "aria-label": md(ds) + " " + fmtM(m), onclick: function () { det.textContent = dayText(ds); } }));
+      })(d);
+    }
+    var cB = h("div", { class: "card" }, h("div", { class: "h2", text: "B．日曆熱力圖" }),
+      h("div", { class: "small", text: "顏色越深，當天時間越接近目標；綠框＝保底完成；點格子看當天明細。" }),
+      h("div", { class: "st-heatw" }, h("div", { class: "st-heat" },
+        h("div", { class: "st-wl" }, "一二三四五六日".split("").map(function (c) { return h("span", { text: c }); })),
+        h("div", { class: "st-hg", style: "grid-template-columns:repeat(" + (n / 7) + ",26px)" }, cells))),
+      det,
+      h("div", { class: "st-lg" }, h("span", { text: "少" }), [0, 1, 2, 3, 4].map(function (l) { return h("i", { class: "st-cell l" + l }); }), h("span", { text: "多" })));
+
+    // C. 目標對照：每天的長條與當天目標線
+    var cFrom = stRange ? from : (addDays(today, -55) > first ? addDays(today, -55) : first), cd = [], mxc = 60, pastAct = 0, pastGoal = 0;
+    for (d = cFrom; d <= today; d = addDays(d, 1)) { var gd = dayGoal(d), dv = dm(d); cd.push({ d: d, m: dv, g: gd }); mxc = Math.max(mxc, dv, gd); if (d < today) { pastAct += dv; pastGoal += gd; } }
+    var cC = h("div", { class: "card" }, h("div", { class: "h2", text: "C．目標對照" }),
+      h("div", { class: "small", text: "橫線是當天目標（平日 " + fmtM(dayGoal("2026-11-09")) + "、週末 " + fmtM(dayGoal("2026-11-07")) + "）。綠色＝達到目標，藍色＝未達。" }),
+      h("div", { class: "st-dg" }, cd.map(function (x) {
+        return h("div", { class: "st-dc" + (x.d === today ? " now" : ""), title: md(x.d) + " " + fmtM(x.m) }, h("i", { class: "bar" + (x.m >= x.g ? " ok" : ""), style: "height:" + (x.m / mxc * 100) + "%" }), h("i", { class: "tk", style: "bottom:" + (x.g / mxc * 100) + "%" }));
+      })),
+      cd.length <= 14 ? h("div", { class: "st-dl" }, cd.map(function (x) { return h("span", { text: WD.charAt(dowOf(x.d)) }); })) : h("div", { class: "small st-dl2" }, h("span", { text: md(cd[0].d) }), h("span", { text: md(today) })),
+      pastGoal ? h("div", { class: "small", text: "今天以前累計 " + fmtM(pastAct) + "，目標累計 " + fmtM(pastGoal) + "（" + (pastAct >= pastGoal ? "多 " : "少 ") + fmtM(Math.abs(pastAct - pastGoal)) + "）。" }) : null);
+
+    // D. 各科累計、科目地圖與讀章速度
+    var mxs = Math.max.apply(null, sids.map(function (s) { return t3(subs[s]); }).concat([1]));
+    var bub = sids.filter(function (s) { return t3(subs[s]); }).map(function (s) {
+      var sz = Math.round(44 + Math.sqrt(t3(subs[s]) / mxs) * 56);
+      return h("div", { class: "st-bub" }, h("div", { class: "st-bc", style: "width:" + sz + "px;height:" + sz + "px;background:" + (COL[s] || COL[""]), text: fmtM(t3(subs[s])) }), h("span", { text: nameOf(s) }));
+    });
+    var cD = h("div", { class: "card" }, h("div", { class: "h2", text: "D．各科投入與進度" }),
+      h("div", { class: "small", text: "圓的大小是" + rangeTxt + "的投入時間。下方是章節完成數與讀章速度（依讀完的章算，和排程重排用的同一份）。" }),
+      bub.length ? h("div", { class: "st-bubs" }, bub) : null,
+      KS.subjects.map(function (sx) {
+        var cs = chapters(sx.id), dn = 0, pc = paceOf(sx.id), r = pc.n ? pc.v / pc.base : 0, tm = subs[sx.id] ? t3(subs[sx.id]) : 0;
+        cs.forEach(function (c) { var ci = chInfo(sx.id + ":" + c.id); if (ci && ci.done) dn++; });
+        var sp = !cs.length ? "" : pc.n ? "　速度" + (r < 0.95 ? "比預估快 " + Math.round((1 - r) * 100) + "%" : r > 1.05 ? "比預估慢 " + Math.round((r - 1) * 100) + "%" : "和預估相近") + "（" + pc.n + " 章）" : "　還沒有讀完的章可算速度";
+        return h("div", { class: "st-row", style: "--c:" + (COL[sx.id] || COL[""]) },
+          h("div", { class: "st-hd" }, h("b", { text: sx.name }), h("span", { text: fmtM(tm) + (cs.length ? "　完成 " + dn + "/" + cs.length + " 章" : "") })),
+          cs.length ? h("div", { class: "st-bar st-pg" }, h("i", { class: "rd", style: "flex:" + dn }), h("i", { class: "ot", style: "flex:" + (cs.length - dn) })) : null,
+          sp ? h("div", { class: "small", text: sp.trim() }) : null);
+      }));
+
+    // E. 時段分布（依記錄結束時間往前推算；手動補記以補記時刻計）
+    var hr = [], htot = 0, j;
+    for (i = 0; i < 24; i++) hr.push(0);
+    rl.forEach(function (x) { if (!x.ts) return; var st = x.ts - x.m * 6e4; for (j = 0; j < x.m; j++) { hr[new Date(st + j * 6e4).getHours()]++; htot++; } });
+    var hmx = Math.max.apply(null, hr.concat([1])), bestS = 0, bestI = 0;
+    for (i = 0; i < 24; i++) { var s2 = hr[i] + hr[(i + 1) % 24]; if (s2 > bestS) { bestS = s2; bestI = i; } }
+    function bandPct(a, b) { var s = 0; for (var k = a; k <= b; k++) s += hr[k]; return htot ? Math.round(s / htot * 100) + "%" : "0%"; }
+    function p2(x) { return ("0" + x).slice(-2); }
+    var cE = h("div", { class: "card" }, h("div", { class: "h2", text: "E．時段分布（" + rangeTxt + "）" }),
+      htot ? h("div", { class: "small", text: "最集中的兩小時是 " + p2(bestI) + ":00–" + p2((bestI + 2) % 24) + ":00（占 " + Math.round(bestS / htot * 100) + "%）。清晨 5–11 點 " + bandPct(5, 11) + "，下午 12–17 點 " + bandPct(12, 17) + "，晚上 18–23 點 " + bandPct(18, 23) + "，深夜 0–4 點 " + bandPct(0, 4) + "。" }) : h("div", { class: "small", text: "這段期間還沒有記錄。" }),
+      h("div", { class: "st-hr" }, hr.map(function (v, k) { return h("i", { class: k === bestI || k === (bestI + 1) % 24 ? "pk" : "", style: "height:" + Math.max(2, v / hmx * 100) + "%", title: k + " 點 " + v + " 分" }); })),
+      h("div", { class: "st-hl" }, ["0", "6", "12", "18", "24"].map(function (t) { return h("span", { text: t }); })));
+
+    // F-2. 每週趨勢：讀課文與做題的比例怎麼變
+    var wk = {}, wkeys;
+    Object.keys(byDay).forEach(function (k) { var w = monOf(k), o = wk[w] = wk[w] || { read: 0, drill: 0, oth: 0 }, b = byDay[k].k; o.read += b.read || 0; o.drill += (b.drill || 0) + (b.write || 0); o.oth += (b.voc || 0) + (b.free || 0) + (b.oth || 0); });
+    wkeys = []; for (d = monOf(addDays(today, -77)) > monOf(first) ? monOf(addDays(today, -77)) : monOf(first); d <= today; d = addDays(d, 7)) wkeys.push(d);
+    var wmx = Math.max.apply(null, wkeys.map(function (w) { var o = wk[w]; return o ? t3(o) : 0; }).concat([1]));
+    var cF = h("div", { class: "card" }, h("div", { class: "h2", text: "每週趨勢" }),
+      h("div", { class: "small", text: "每週的讀課文（藍）、做題・複習（綠）、其他（灰），上方是做題占「課文＋做題」的比例。" }),
+      h("div", { class: "st-wg" }, wkeys.map(function (w) {
+        var o = wk[w] || { read: 0, drill: 0, oth: 0 }, rd = o.read + o.drill;
+        return h("div", { class: "st-wc" }, h("span", { class: "st-wp", text: rd ? Math.round(o.drill / rd * 100) + "%" : "" }),
+          h("div", { class: "st-ws", style: "height:" + (t3(o) / wmx * 100) + "%" }, h("i", { class: "o", style: "flex:" + o.oth }), h("i", { class: "d", style: "flex:" + o.drill }), h("i", { class: "r", style: "flex:" + o.read })),
+          h("span", { class: "st-wd", text: md(w) }));
+      })));
+
+    // 週報：近 7 天文字摘要，可複製貼給 Claude 或存起來
+    function weekReport() {
+      var s7 = addDays(today, -6), tot = 0, dd = 0, okn = 0, bk = {}, bs = {};
+      for (var q = s7; q <= today; q = addDays(q, 1)) { var b = byDay[q]; if (b) { tot += b.m; dd++; Object.keys(b.k).forEach(function (k) { bk[k] = (bk[k] || 0) + b.k[k]; }); } if ((S.plan[q] || {})._ok) okn++; }
+      logs.forEach(function (x) { if (x.d >= s7 && x.d <= today) bs[x.sid] = (bs[x.sid] || 0) + x.m; });
+      var by = function (o) { return Object.keys(o).sort(function (a, b) { return o[b] - o[a]; }); };
+      return ["【近 7 天時間摘要】" + md(s7) + "–" + md(today),
+        "合計 " + fmtM(tot) + "，有記錄 " + dd + " 天，平均每天 " + fmtM(dd ? tot / dd : 0) + "，保底完成 " + okn + " 天",
+        "類型：" + (by(bk).map(function (k) { return STN[k] + " " + fmtM(bk[k]); }).join("、") || "無"),
+        "科目：" + (by(bs).map(function (s) { return nameOf(s) + " " + fmtM(bs[s]); }).join("、") || "無")].join("\n");
+    }
+    var wr = weekReport();
+    var cR = h("div", { class: "card" }, h("div", { class: "h2", text: "週報" }), h("pre", { class: "st-pre", text: wr }),
+      h("button", { class: "btn soft", text: "複製這份摘要", onclick: function () { copyText(wr); } }));
+
+    show(topbar("#/", "今天"), h("h1", { class: "pg-t", text: "時間統計" }), over, h("div", { class: "small" }, "下面幾張圖依選的範圍計算："), seg, cA, cB, cC, cD, cE, cF, cR);
+  }
+
   // ---------- 路由 ----------
   // ---------- 釋字法庭：看事實押注，再判結果、選理由、認號次。資料在 data/game.js，進度在 S.gm（會同步）。 ----------
   var GM = null;   // 進行中的一輪只放記憶體；回課文再回來可以接續，重新整理就重開
@@ -2694,7 +2855,7 @@
     var p = (location.hash || "#/").replace(/^#\/?/, "").split("/").map(decodeURIComponent);
     window.scrollTo(0, 0); vHide();
     app.className = "v-" + (p[0] || "home");
-    var PAGES = { s: 1, c: 1, x: 1, p: 1, g: 1, r: 1, es: 1, rd: 1, rep: 1, sch: 1, print: 1, gm: 1, gmp: 1 };
+    var PAGES = { s: 1, c: 1, x: 1, p: 1, g: 1, r: 1, es: 1, rd: 1, rep: 1, sch: 1, stats: 1, print: 1, gm: 1, gmp: 1 };
     setTabbar(PAGES[p[0]] ? null : (p[0] === "subjects" || p[0] === "wrong" || p[0] === "db" || p[0] === "settings" ? p[0] : ""));
     switch (p[0]) {
       case "subjects": return viewSubjects();
@@ -2713,6 +2874,7 @@
       case "gmp": if (subj(p[1]) && gmCases(p[1], p[2]).length) return viewGamePlay(p[1], p[2], p[3]); break;
       case "rep": return viewReport();
       case "sch": return viewSchedule();
+      case "stats": return viewStats();
       case "print": if (getSet(p[1])) return viewPrint(p[1], p[2]); break;
     }
     setTabbar(""); viewHome();

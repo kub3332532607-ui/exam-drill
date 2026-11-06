@@ -619,3 +619,57 @@ body.tts-pad #app { padding-bottom: 84px; }
 .gm-next { justify-self: stretch; margin-top: 4px; }
 .gm-nm { font-size: 15px; }
 @media (max-width: 760px) { .gm-card { padding-right: 30px; } }
+
+/* ---- 時間統計頁 #/stats（ks-v64） ---- */
+.st-tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 8px 0 10px; }
+.st-tile { background: var(--soft); border-radius: 12px; padding: 10px 4px; text-align: center; }
+.st-tile b { display: block; font-size: 17px; }
+.st-tile span { font-size: 11px; color: var(--ink2); }
+.st-row { margin: 12px 0 0; }
+.st-hd { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; margin-bottom: 4px; }
+.st-hd span { color: var(--ink2); text-align: right; }
+.st-bar { display: flex; height: 12px; border-radius: 6px; overflow: hidden; background: var(--soft); }
+.st-bar i { display: block; height: 100%; }
+.st-bar .rd { background: var(--c); }
+.st-bar .dr { background: repeating-linear-gradient(45deg, var(--c) 0 4px, color-mix(in srgb, var(--c) 35%, var(--card)) 4px 8px); }
+.st-bar .ot { background: color-mix(in srgb, var(--c) 25%, var(--soft)); }
+.st-pg { width: 100%; }
+.st-heatw { overflow-x: auto; margin-top: 10px; padding-bottom: 4px; }
+.st-heat { display: flex; gap: 6px; width: max-content; }
+.st-wl { display: grid; grid-template-rows: repeat(7, 26px); gap: 4px; font-size: 11px; color: var(--ink2); }
+.st-wl span { line-height: 26px; }
+.st-hg { display: grid; grid-auto-flow: column; grid-template-rows: repeat(7, 26px); gap: 4px; }
+.st-cell { width: 26px; height: 26px; border-radius: 6px; background: var(--soft); box-sizing: border-box; cursor: pointer; }
+.st-cell.l1 { background: color-mix(in srgb, var(--accent) 22%, var(--soft)); }
+.st-cell.l2 { background: color-mix(in srgb, var(--accent) 42%, var(--soft)); }
+.st-cell.l3 { background: color-mix(in srgb, var(--accent) 68%, var(--soft)); }
+.st-cell.l4 { background: var(--accent); }
+.st-cell.ok { box-shadow: inset 0 0 0 2px var(--green); }
+.st-cell.fut { opacity: .4; }
+.st-cell.now { outline: 2px solid var(--ink); outline-offset: 1px; }
+.st-det { margin-top: 8px; min-height: 20px; }
+.st-lg { display: flex; align-items: center; gap: 4px; margin-top: 6px; font-size: 11px; color: var(--ink2); }
+.st-lg .st-cell { width: 14px; height: 14px; border-radius: 4px; cursor: default; }
+.st-dg { display: flex; align-items: flex-end; gap: 3px; height: 110px; margin-top: 10px; }
+.st-dc { position: relative; flex: 1; height: 100%; display: flex; align-items: flex-end; min-width: 0; }
+.st-dc .bar { display: block; width: 100%; background: var(--accent); border-radius: 4px 4px 0 0; opacity: .75; }
+.st-dc .bar.ok { background: var(--green); opacity: 1; }
+.st-dc .tk { position: absolute; left: -1px; right: -1px; border-top: 2px dashed var(--ink2); opacity: .7; }
+.st-dc.now .bar { opacity: 1; }
+.st-dl { display: flex; gap: 3px; font-size: 11px; color: var(--ink2); margin: 2px 0 6px; }
+.st-dl span { flex: 1; text-align: center; }
+.st-dl2 { display: flex; justify-content: space-between; margin: 2px 0 6px; }
+.st-bubs { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: flex-end; margin: 12px 0 4px; }
+.st-bub { display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 12px; color: var(--ink2); }
+.st-bc { border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 12px; font-weight: 700; }
+.st-hr { display: flex; align-items: flex-end; gap: 2px; height: 70px; margin-top: 10px; }
+.st-hr i { flex: 1; background: color-mix(in srgb, var(--accent) 40%, var(--soft)); border-radius: 3px 3px 0 0; }
+.st-hr i.pk { background: var(--accent); }
+.st-hl { display: flex; justify-content: space-between; font-size: 11px; color: var(--ink2); margin-top: 2px; }
+.st-wg { display: flex; align-items: flex-end; gap: 6px; height: 130px; margin-top: 10px; }
+.st-wc { flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; min-width: 0; }
+.st-ws { width: 100%; max-width: 34px; display: flex; flex-direction: column-reverse; border-radius: 5px; overflow: hidden; min-height: 2px; }
+.st-ws i { display: block; width: 100%; }
+.st-ws .r { background: #3b55c4; } .st-ws .d { background: #1e8558; } .st-ws .o { background: #9aa1b2; }
+.st-wp, .st-wd { font-size: 11px; color: var(--ink2); margin: 2px 0; min-height: 14px; }
+.st-pre { white-space: pre-wrap; font: inherit; font-size: 13px; background: var(--soft); border-radius: 12px; padding: 10px; margin: 8px 0; }
