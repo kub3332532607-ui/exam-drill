@@ -675,7 +675,7 @@ body.tts-pad #app { padding-bottom: 84px; }
 .st-pre { white-space: pre-wrap; font: inherit; font-size: 13px; background: var(--soft); border-radius: 12px; padding: 10px; margin: 8px 0; }
 
 /* ---- ks-v65：紅圈、暫停詢問大視窗、每節用時 ---- */
-.art .ring { border: 2px solid var(--red); border-radius: 10px; padding: 0 3px; margin: 0 -1px; cursor: pointer; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+.art .ring { border: 2px solid var(--red); position: relative; z-index: 2; border-radius: 10px; padding: 0 3px; margin: 0 -1px; cursor: pointer; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
 .art .ring.has-note::after { content: "✎"; font-family: var(--sans); font-size: .62em; vertical-align: super; color: var(--accent); margin-left: 2px; }
 .rmodal { position: fixed; inset: 0; z-index: 200; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; padding: 20px; }
 .rm-box { width: 100%; max-width: 420px; background: var(--card); border-radius: 24px; padding: 28px 22px 22px; box-shadow: 0 10px 40px rgba(0,0,0,.4); }
