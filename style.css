@@ -673,3 +673,15 @@ body.tts-pad #app { padding-bottom: 84px; }
 .st-ws .r { background: #3b55c4; } .st-ws .d { background: #1e8558; } .st-ws .o { background: #9aa1b2; }
 .st-wp, .st-wd { font-size: 11px; color: var(--ink2); margin: 2px 0; min-height: 14px; }
 .st-pre { white-space: pre-wrap; font: inherit; font-size: 13px; background: var(--soft); border-radius: 12px; padding: 10px; margin: 8px 0; }
+
+/* ---- ks-v65：紅圈、暫停詢問大視窗、每節用時 ---- */
+.art .ring { border: 2px solid var(--red); border-radius: 10px; padding: 0 3px; margin: 0 -1px; cursor: pointer; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+.art .ring.has-note::after { content: "✎"; font-family: var(--sans); font-size: .62em; vertical-align: super; color: var(--accent); margin-left: 2px; }
+.rmodal { position: fixed; inset: 0; z-index: 200; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; padding: 20px; }
+.rm-box { width: 100%; max-width: 420px; background: var(--card); border-radius: 24px; padding: 28px 22px 22px; box-shadow: 0 10px 40px rgba(0,0,0,.4); }
+.rm-t { font-size: 24px; font-weight: 800; line-height: 1.4; margin-bottom: 8px; }
+.rm-s { font-size: 16px; color: var(--ink2); line-height: 1.5; margin-bottom: 6px; }
+.rm-b { display: block; width: 100%; min-height: 60px; margin-top: 12px; border: 0; border-radius: 16px; background: var(--accent); color: var(--card); font: inherit; font-size: 20px; font-weight: 800; cursor: pointer; }
+.rm-b.soft { background: var(--soft); color: var(--ink); font-weight: 700; }
+.st-xs { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; padding: 8px 0 8px 10px; border-left: 4px solid var(--c); margin-top: 8px; color: var(--ink); text-decoration: none; font-size: 14px; background: var(--soft); border-radius: 0 10px 10px 0; }
+.st-xs b { flex: none; }

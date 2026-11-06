@@ -3,7 +3,7 @@
   var KS = window.KS, LET = ["A", "B", "C", "D"];
   var app = document.getElementById("app");
   // 版本號：和 sw.js 的 VER 保持一致，改程式時兩邊一起加一
-  var APP_VER = "ks-v64", APP_DATE = "2026-11-06";
+  var APP_VER = "ks-v65", APP_DATE = "2026-11-06";
 
   // ---------- 儲存 ----------
   var KEY = "ks_v1";
@@ -480,24 +480,73 @@
   function tStart(t, date) {
     if (S.run && S.run.k === t.id && S.run.d === date) { if (!S.run.t0) tResume(); return; }
     if (S.run) tStop(true);
-    S.run = { k: t.id, t: t.t, sid: t.sid || "", min: t.min, d: date, href: t.href, ext: !!t.ext, acc: 0, t0: Date.now(), hb: Date.now() };
-    qMark(); save(); runBar();
+    S.run = { k: t.id, t: t.t, sid: t.sid || "", min: t.min, d: date, href: t.href, ext: !!t.ext, acc: 0, t0: Date.now(), hb: Date.now(), a: Date.now(), im: idleDefault({ k: t.id, t: t.t }) };
+    lastAct = Date.now(); segMark(); save(); runBar();
   }
-  // 做題時間：章計時進行中，停在章節題目頁（#/p/c:…）的毫秒另外累計（r.q），結束時記成 chq:，不算進讀章速度，但仍算進當天讀書時間
-  function qFlush() { var r = S.run; if (r && r.qt) { if (r.t0) r.q = (r.q || 0) + Date.now() - r.qt; r.qt = null; } }
-  function qMark() { var r = S.run; if (!r || r.k.indexOf("ch:")) return; qFlush(); if (r.t0 && /^#\/p\/[ct]:/.test(location.hash)) r.qt = Date.now(); }
-  window.addEventListener("hashchange", qMark);
-  function tPause() { var r = S.run; if (!r || !r.t0) return; qFlush(); r.acc += Date.now() - r.t0; r.t0 = null; r.p = 1; save(); runBar(); }
-  function tResume() { var r = S.run; if (!r) return; r.t0 = Date.now(); r.p = 0; r.away = null; qMark(); save(); runBar(); }
+  // 計時分類（ks-v64）：每段時間依當時所在畫面分成 讀課文／做題／寫作；認不得的畫面（首頁、設定…）和外連任務算成任務本來的類型，
+  // 所以紙本作答放著計時也不會變成「其他」。r.sg＝各類毫秒，r.sx＝各節毫秒（只算讀課文），r.hh＝各小時毫秒，r.a＝開始時間。
+  function runKind(r) { return !r.k.indexOf("ch:") ? "read" : tlKind(r.k); }
+  function hashKind() {
+    var m = /^#\/(rd|c|p|x|g|r|print|gm|gmp|es)\//.exec(location.hash || ""); if (!m) return null;
+    return m[1] === "rd" || m[1] === "c" ? "read" : m[1] === "es" ? "write" : "drill";
+  }
+  function segFlush(at) {
+    var r = S.run; if (!r || !r.kt) return;
+    var ms = (at || Date.now()) - r.kt; r.kt = null; if (ms <= 0) return;
+    r.sg = r.sg || {}; r.sg[r.kk] = (r.sg[r.kk] || 0) + ms;
+    if (r.kx) { r.sx = r.sx || {}; r.sx[r.kx] = (r.sx[r.kx] || 0) + ms; }
+  }
+  function segMark() {
+    var r = S.run; if (!r) return; segFlush();
+    if (!r.t0) return;
+    r.kt = Date.now(); r.kk = (r.ext ? null : hashKind()) || runKind(r);
+    var m = /^#\/rd\/([^/]+)\/([^/]+)\/([^/]+)/.exec(location.hash || "");
+    r.kx = r.kk === "read" && m ? m[1] + ":" + m[2] + ":" + m[3] : null;
+  }
+  function hourAdd(t0, t1) {
+    var r = S.run; if (!r || !t0 || t1 <= t0) return; var hh = r.hh = r.hh || {};
+    while (t0 < t1) { var d0 = new Date(t0), nx = Math.min(t1, new Date(d0.getFullYear(), d0.getMonth(), d0.getDate(), d0.getHours() + 1).getTime()); hh[d0.getHours()] = (hh[d0.getHours()] || 0) + (nx - t0); t0 = nx; }
+  }
+  window.addEventListener("hashchange", function () { segMark(); });
+  // 閒置偵測：計時中超過設定的分鐘數沒有觸控、捲動、按鍵（朗讀中不算閒置）就暫停，並問要不要把這段算進去。
+  // 預設看設定 S.idle（3／10／20／30，預設 3）；申論、作文至少 20 分；計時列的 ⏳ 可以只改這一次。
+  var lastAct = Date.now(), IDLE_OPTS = [3, 10, 20, 30];
+  function actNow() { lastAct = Date.now(); }
+  ["touchstart", "touchmove", "pointerdown", "keydown", "wheel", "click"].forEach(function (ev) { document.addEventListener(ev, actNow, { passive: true, capture: true }); });
+  window.addEventListener("scroll", actNow, { passive: true, capture: true });
+  function idleDefault(x) { var b = S.idle || 3; return x && (x.k === "es" || /申論|作文/.test(x.t || "")) ? Math.max(b, 20) : b; }
+  function idleMin(r) { return r.im || idleDefault(r); }
+  setInterval(function () {
+    var r = S.run; if (!r || !r.t0 || r.noidle || document.hidden) return;
+    if (window.speechSynthesis && speechSynthesis.speaking) { lastAct = Date.now(); return; }
+    if (Date.now() - lastAct > idleMin(r) * 6e4) { tAway(lastAct); r.idl = 1; save(); runBar(); }
+  }, 5000);
+  function tPause() { var r = S.run; if (!r || !r.t0) return; var n = Date.now(); segFlush(n); hourAdd(r.t0, n); r.acc += n - r.t0; r.t0 = null; r.p = 1; save(); runBar(); }
+  function tResume() { var r = S.run; if (!r) return; r.t0 = Date.now(); r.p = 0; r.away = null; r.idl = 0; lastAct = Date.now(); r.a = r.a || r.t0; segMark(); save(); runBar(); }
   function tStop(quiet) {
     var r = S.run; if (!r) return;
-    var ms = runMs(), m = Math.round(ms / 6e4), mq = 0;
-    qFlush(); if (!r.k.indexOf("ch:")) mq = Math.min(m, Math.round(Math.min(r.q || 0, ms) / 6e4));
+    var n = Date.now(); if (r.t0) { segFlush(n); hourAdd(r.t0, n); }
+    var ms = r.acc + (r.t0 ? n - r.t0 : 0), m = Math.round(ms / 6e4), cur = runKind(r), mq = 0;
     S.run = null;
     if (m >= 1) {
-      var id = "t" + Date.now().toString(36);
-      if (mq >= 1) S.tl[id + "q"] = { d: r.d, k: "chq:" + r.k.slice(3), t: r.t + "（做題）", sid: r.sid, m: mq, ts: Date.now() };
-      if (m - mq >= 1 || !mq) S.tl[id] = { d: r.d, k: r.k, t: r.t, sid: r.sid, m: m - mq, ts: Date.now() };
+      // 各類毫秒：手動改時間、「算進去」的離開時間沒有歸類，就歸給任務本來的類型；比總時間多就等比縮小
+      var sg = Object.assign({}, r.sg || {}), sum = 0;
+      Object.keys(sg).forEach(function (k) { sum += sg[k]; });
+      if (ms > sum) sg[cur] = (sg[cur] || 0) + (ms - sum);
+      else if (sum > ms) Object.keys(sg).forEach(function (k) { sg[k] = sg[k] * ms / sum; });
+      var ks = Object.keys(sg).sort(function (a, b) { return sg[b] - sg[a]; }), mins = {}, left = m;
+      ks.slice(1).forEach(function (k) { var v = Math.min(left, Math.round(sg[k] / 6e4)); mins[k] = v; left -= v; });
+      mins[ks[0]] = left; mq = mins.drill || 0;
+      var id = "t" + n.toString(36), isCh = !r.k.indexOf("ch:");
+      ks.forEach(function (k, i) {
+        if (!(mins[k] >= 1)) return;
+        var q = isCh && (k === "drill" || k === "write");
+        var rec = { d: r.d, k: q ? "chq:" + r.k.slice(3) : r.k, t: q ? r.t + (k === "write" ? "（寫作）" : "（做題）") : r.t, sid: r.sid, m: mins[k], ts: n, kd: k };
+        if (r.a) rec.a = r.a;
+        if (!i && r.hh) { rec.hh = {}; Object.keys(r.hh).forEach(function (h2) { var v = Math.round(r.hh[h2] / 6e4); if (v >= 1) rec.hh[h2] = v; }); }
+        if (k === "read" && r.sx) { rec.xs = {}; Object.keys(r.sx).forEach(function (x) { var v = Math.round(r.sx[x] / 1e3); if (v >= 30) rec.xs[x] = v; }); }
+        S.tl[i ? id + "_" + k : id] = rec;
+      });
       var pl = S.plan[r.d] = S.plan[r.d] || {};
       if (!pl[r.k] && r.k.indexOf("ch:") && r.k.indexOf("free:") && taskMin(r.d, r.k) >= r.min * 0.8) { pl[r.k] = Date.now(); pl._t = Date.now(); }
     }
@@ -505,26 +554,40 @@
     if (!quiet) { toast(m >= 1 ? "記下 " + m + " 分鐘" + (mq >= 1 ? "（做題 " + mq + "）" : "") : "不到 1 分鐘，不記"); if (!location.hash || location.hash === "#/") route(); }
   }
   // 離開畫面（切程式、關螢幕、被叫走）就先停，回來再問要不要算進去
-  function tAway() { var r = S.run; if (!r || !r.t0) return; qFlush(); r.acc += Date.now() - r.t0; r.t0 = null; r.away = Date.now(); save(); }
+  function tAway(at) { var r = S.run; if (!r || !r.t0) return; var n = at || Date.now(); segFlush(n); hourAdd(r.t0, n); r.acc += n - r.t0; r.t0 = null; r.away = n; save(); }
   function tBack() {
     var r = S.run; if (!r || !r.away) return;
     var gap = Date.now() - r.away;
-    if (gap < 9e4) { r.acc += gap; r.away = null; r.t0 = Date.now(); qMark(); save(); }
+    if (!r.idl && gap < 9e4) { hourAdd(r.away, Date.now()); r.acc += gap; r.away = null; r.t0 = Date.now(); segMark(); save(); }
     runBar();
+  }
+  // 暫停後的詢問視窗：全螢幕、大字大按鈕
+  var rmodal = null;
+  function awayModal(r) {
+    if (rmodal) rmodal.remove();
+    var g = Math.max(1, Math.round((Date.now() - r.away) / 6e4));
+    function take() { var n = Date.now(); hourAdd(r.away, n); r.acc += n - r.away; tResume(); }
+    rmodal = h("div", { class: "rmodal", role: "dialog", "aria-label": "計時已暫停" }, h("div", { class: "rm-box" },
+      h("div", { class: "rm-t", text: r.ext ? "剛剛 " + g + " 分鐘都在背單字嗎？" : r.idl ? "已經 " + g + " 分鐘沒有操作，計時先暫停了" : "剛剛離開了 " + g + " 分鐘" }),
+      h("div", { class: "rm-s", text: r.t }),
+      h("div", { class: "rm-s", text: "這 " + g + " 分鐘要算進讀書時間嗎？（寫在紙上也算讀書）" }),
+      h("button", { class: "rm-b", text: "算進去", onclick: take }),
+      h("button", { class: "rm-b soft", text: "不算", onclick: tResume }),
+      r.idl ? h("button", { class: "rm-b soft", text: "算進去，這次不再偵測閒置", onclick: function () { r.noidle = 1; take(); } }) : null));
+    document.body.appendChild(rmodal);
   }
   var rbar = null, rtick = null;
   function runBar() {
     var r = S.run;
+    if (rmodal && (!r || !r.away)) { rmodal.remove(); rmodal = null; }
     if (!r) { if (rbar) { rbar.remove(); rbar = null; } clearInterval(rtick); rtick = null; document.body.classList.remove("has-run", "run-wide"); return; }
     if (!rbar) { rbar = h("div", { class: "runbar", role: "status" }); document.body.appendChild(rbar); document.body.classList.add("has-run"); }
     rbar.style.setProperty("--c", COL[r.sid] || COL[""]);
     rbar.classList.toggle("mini", !!(S.rbm && !r.away));
     document.body.classList.toggle("run-wide", !(S.rbm && !r.away));
     if (r.away) {
-      var g = Math.round((Date.now() - r.away) / 6e4);
-      rbar.replaceChildren(h("div", { class: "rb-q", text: (r.ext ? "剛剛 " + g + " 分鐘都在背單字嗎？" : "剛剛離開 " + g + " 分鐘，要算進去嗎？") }),
-        h("button", { class: "rb-b", text: "算進去", onclick: function () { r.acc += Date.now() - r.away; tResume(); } }),
-        h("button", { class: "rb-b soft", text: "不算", onclick: tResume }));
+      rbar.replaceChildren(h("div", { class: "rb-q", text: "已暫停，等你回答" }));
+      awayModal(r);
       return;
     }
     var tm = h("button", { class: "rb-t", "aria-label": "修改時間", onclick: function () {
@@ -542,16 +605,21 @@
     rbar.replaceChildren(h("span", { class: "rb-dot" + (r.t0 ? " on" : "") }),
       h("a", { class: "rb-n", href: r.href, target: r.ext ? "_blank" : null, rel: r.ext ? "noopener" : null, text: r.t }), tm,
       h("button", { class: "rb-b soft", "aria-label": r.t0 ? "暫停" : "繼續", text: r.t0 ? "❚❚" : "▶", onclick: function () { if (S.run.t0) tPause(); else tResume(); } }),
+      h("button", { class: "rb-b soft", "aria-label": "閒置幾分鐘提醒（只改這一次）", text: r.noidle ? "⏳關" : "⏳" + idleMin(r) + "m", onclick: function () {
+        var o = IDLE_OPTS.concat([0]), cur = r.noidle ? 0 : idleMin(r), nx = o[(o.indexOf(cur) + 1) % o.length];
+        if (nx) { r.noidle = 0; r.im = nx; } else r.noidle = 1;
+        lastAct = Date.now(); save(); runBar(); toast(nx ? "這次計時：" + nx + " 分鐘沒操作就暫停" : "這次計時：不偵測閒置");
+      } }),
       h("button", { class: "rb-b", "aria-label": "結束並記錄", text: "■", onclick: function () { tStop(); } }),
       h("button", { class: "rb-b soft", "aria-label": "縮小成圓形", text: "◯", onclick: function () { S.rbm = 1; save(); runBar(); } }));
     upd(); clearInterval(rtick); rtick = setInterval(upd, 1000);
   }
   document.addEventListener("visibilitychange", function () { if (document.hidden) tAway(); else tBack(); });
-  window.addEventListener("pagehide", tAway);
+  window.addEventListener("pagehide", function () { tAway(); });
   function runInit() {
     var r = S.run; if (!r) return;
     // 上次計時中被關掉：從最後一次心跳算起當作離開
-    if (r.t0) { var hb = Math.max(r.hb || r.t0, r.t0); r.acc += hb - r.t0; r.t0 = null; r.away = hb; save(); }
+    if (r.t0) { var hb = Math.max(r.hb || r.t0, r.t0); segFlush(hb); hourAdd(r.t0, hb); r.acc += hb - r.t0; r.t0 = null; r.away = hb; save(); }
     if (r.away) tBack(); else runBar();
   }
 
@@ -723,7 +791,10 @@
     var next = S.theme === "dark" ? "light" : S.theme === "light" ? "" : "dark";
     var theme = h("div", { class: "card" }, h("div", { class: "h2", text: "外觀" }),
       h("div", { class: "chips" }, [["", "跟隨系統"], ["light", "日間"], ["dark", "夜間"]].map(function (t) { return h("button", { class: "chip", "aria-pressed": String(S.theme === t[0]), text: t[1], onclick: function () { S.theme = t[0]; save(); applyTheme(); route(); } }); })));
-    show(topbar(), h("h1", { class: "pg-t", text: "設定" }), syncCard(), theme,
+    var idle = h("div", { class: "card" }, h("div", { class: "h2", text: "計時：閒置幾分鐘就暫停" }),
+      h("div", { class: "small", text: "計時中這麼久沒有觸控或捲動，就先暫停並問你要不要算。申論、作文至少 20 分鐘。寫在紙上的話選長一點，或在計時列按 ⏳ 只改這一次。朗讀中不算閒置。" }),
+      h("div", { class: "chips" }, IDLE_OPTS.map(function (v) { return h("button", { class: "chip", "aria-pressed": String((S.idle || 3) === v), text: v + " 分鐘", onclick: function () { S.idle = v; save(); route(); } }); })));
+    show(topbar(), h("h1", { class: "pg-t", text: "設定" }), syncCard(), theme, idle,
       h("div", { class: "card" }, h("div", { class: "h2", text: "備份" }), h("div", { class: "small", text: "進度存在這個瀏覽器。也可以匯出成檔案，到另一台裝置匯入。" }),
         h("div", { class: "btns" }, h("button", { class: "btn soft", text: "匯出進度", onclick: exportData }), h("label", { class: "btn soft", for: "imp", text: "匯入進度" }),
           h("input", { id: "imp", type: "file", accept: "application/json", hidden: true, onchange: importData }))),
@@ -2105,21 +2176,30 @@
       var ps = paras(sec).map(parsePara), list = S.marks[MK] || [], pos = resolveMarks(list, ps);
       art.replaceChildren();
       ps.forEach(function (pp, i) {
-        var n = pp.plain.length, b = new Array(n), m = new Array(n);
+        var n = pp.plain.length, b = new Array(n), m = new Array(n), rg = new Array(n);
         pp.bold.forEach(function (r) { for (var k = r[0]; k < r[1]; k++) b[k] = 1; });
-        list.forEach(function (mk) { var at = pos[mk.id]; if (at && at[0] === i) for (var k = at[1]; k < at[1] + mk.q.length && k < n; k++) m[k] = mk; });
+        // 黃色畫線（m）與紅色圈起來（rg）各占一層，可以疊在同一段字上
+        list.forEach(function (mk) { var at = pos[mk.id], L = mk.k === "ring" ? rg : m; if (at && at[0] === i) for (var k = at[1]; k < at[1] + mk.q.length && k < n; k++) L[k] = mk; });
         function fill(el, a, z) {
           el.setAttribute("data-p", String(i)); if (a) el.setAttribute("data-po", String(a));
-          var k = a;
+          var k = a, ringMk = null, ringEl = null;
           while (k < z) {
-            var j = k; while (j < z && b[j] === b[k] && m[j] === m[k]) j++;
+            var j = k; while (j < z && b[j] === b[k] && m[j] === m[k] && rg[j] === rg[k]) j++;
             var node = document.createTextNode(pp.plain.slice(k, j));
             if (b[k]) node = h("strong", null, node);
             if (m[k]) {
               var mk = m[k], end = pos[mk.id][1] + mk.q.length <= j;
               node = h("mark", { class: "hl" + (mk.note ? " has-note" : "") + (end ? " end" : ""), "data-m": mk.id, onclick: (function (x) { return function () { openMark(x); }; })(mk) }, node);
             }
-            el.appendChild(node); k = j;
+            if (rg[k] !== ringMk) {
+              ringMk = rg[k] || null; ringEl = null;
+              if (ringMk) {
+                ringEl = h("span", { class: "ring" + (ringMk.note ? " has-note" : ""), "data-m": ringMk.id });
+                ringEl.onclick = (function (x, e2) { return function (ev) { if (ev.target === e2) openMark(x); }; })(ringMk, ringEl);
+                el.appendChild(ringEl);
+              }
+            }
+            (ringEl || el).appendChild(node); k = j;
           }
         }
         if (pp.rows || pp.items) return art.appendChild(renderBlock(pp, function (el, cell) { fill(el, cell[0], cell[0] + cell[1]); }));
@@ -2138,7 +2218,7 @@
           if (t) { t.scrollIntoView({ behavior: "smooth", block: "center" }); t.classList.add("flash"); setTimeout(function () { t.classList.remove("flash"); }, 1200); }
           else openMark(mk);
         } },
-          h("div", { class: "q", text: "「" + clip(mk.q, 60) + "」" }),
+          h("div", { class: "q", text: (mk.k === "ring" ? "◯ " : "") + "「" + clip(mk.q, 60) + "」" }),
           mk.note ? h("div", { class: "n", text: mk.note }) : null,
           !pos[mk.id] ? h("div", { class: "small", text: "課文已改寫，找不到這句原文" }) : null,
           mk.rep && !mk.sent ? h("span", { class: "pill blue", text: "待回報" }) : null));
@@ -2171,9 +2251,10 @@
       document.body.appendChild(sheet);
       if (!mk.note) ta.focus();
     }
-    function addMark(withNote) {
+    function addMark(withNote, kind) {
       var sp = selPending; hideBar(); if (!sp) return;
       var mk = { id: Date.now().toString(36), p: sp.p, o: sp.s, q: sp.q, note: "", ts: Date.now() };
+      if (kind) mk.k = kind;
       (S.marks[MK] = S.marks[MK] || []).push(mk); save();
       var w = window.getSelection(); if (w) w.removeAllRanges();
       paint();
@@ -2198,7 +2279,7 @@
       clearTimeout(selTimer);
       selPending = { p: +pa.getAttribute("data-p"), s: st + (+pa.getAttribute("data-po") || 0), q: txt };
       clearTimeout(qtimer); qsel = { rd: true, q: txt };
-      qBar([["畫重點", function () { addMark(false); }], ["畫重點＋備註", function () { addMark(true); }, 1]], function () { var w2 = window.getSelection(); return w2 && w2.rangeCount && !w2.isCollapsed ? w2.getRangeAt(0).getBoundingClientRect() : null; });
+      qBar([["畫重點", function () { addMark(false); }], ["圈起來", function () { addMark(false, "ring"); }], ["畫重點＋備註", function () { addMark(true); }, 1]], function () { var w2 = window.getSelection(); return w2 && w2.rangeCount && !w2.isCollapsed ? w2.getRangeAt(0).getBoundingClientRect() : null; });
     }
     document.addEventListener("selectionchange", onSel);
     function fsChip(label, v) { return h("button", { class: "chip", "aria-pressed": String(fs === v), text: label, onclick: function () { R.fs = v; save(); viewRead(sid, cid, xid); } }); }
@@ -2549,7 +2630,7 @@
     var now = new Date(), today = ymd(now), logs = [], byDay = {}, first = today, WD = "日一二三四五六";
     Object.keys(S.tl).forEach(function (id) {
       var x = S.tl[id]; if (x.del || !x.d || !(x.m > 0)) return;
-      var o = { d: x.d, k: tlKind(x.k), sid: x.sid || "", m: x.m, ts: x.ts || 0 };
+      var o = { d: x.d, k: x.kd || tlKind(x.k), sid: x.sid || "", m: x.m, ts: x.ts || 0, hh: x.hh, xs: x.xs };
       logs.push(o); var b = byDay[x.d] = byDay[x.d] || { m: 0, k: {} };
       b.m += x.m; b.k[o.k] = (b.k[o.k] || 0) + x.m; if (x.d < first) first = x.d;
     });
@@ -2648,10 +2729,22 @@
           sp ? h("div", { class: "small", text: sp.trim() }) : null);
       }));
 
-    // E. 時段分布（依記錄結束時間往前推算；手動補記以補記時刻計）
+    // G. 最花時間的節（ks-v65 起計時會記每節的閱讀秒數）
+    var xsum = {}; rl.forEach(function (x) { if (x.xs) Object.keys(x.xs).forEach(function (k) { xsum[k] = (xsum[k] || 0) + x.xs[k]; }); });
+    var xtop = Object.keys(xsum).sort(function (a, b) { return xsum[b] - xsum[a]; }).slice(0, 8);
+    var cG = h("div", { class: "card" }, h("div", { class: "h2", text: "最花時間的節（" + rangeTxt + "）" }),
+      xtop.length ? xtop.map(function (k) {
+        var a = k.split(":"), sc = section(a[0], a[1], a[2]); if (!sc || !subj(a[0])) return null;
+        return h("a", { class: "st-xs", href: "#/rd/" + a[0] + "/" + a[1] + "/" + a[2], style: "--c:" + (COL[a[0]] || COL[""]) }, h("span", { text: subj(a[0]).name + "・" + sc.title }), h("b", { text: fmtM(xsum[k] / 60) }));
+      }) : h("div", { class: "small", text: "用計時讀課文之後，這裡會列出每一節花了多久。（舊紀錄沒有分節資料）" }));
+
+    // E. 時段分布（有實際各小時分鐘數就用；舊紀錄與手動補記依記錄時間推算）
     var hr = [], htot = 0, j;
     for (i = 0; i < 24; i++) hr.push(0);
-    rl.forEach(function (x) { if (!x.ts) return; var st = x.ts - x.m * 6e4; for (j = 0; j < x.m; j++) { hr[new Date(st + j * 6e4).getHours()]++; htot++; } });
+    rl.forEach(function (x) {
+      if (x.hh) { Object.keys(x.hh).forEach(function (k) { hr[+k] += x.hh[k]; htot += x.hh[k]; }); return; }   // ks-v65 起有實際各小時分鐘數
+      if (!x.ts) return; var st = x.ts - x.m * 6e4; for (j = 0; j < x.m; j++) { hr[new Date(st + j * 6e4).getHours()]++; htot++; }
+    });
     var hmx = Math.max.apply(null, hr.concat([1])), bestS = 0, bestI = 0;
     for (i = 0; i < 24; i++) { var s2 = hr[i] + hr[(i + 1) % 24]; if (s2 > bestS) { bestS = s2; bestI = i; } }
     function bandPct(a, b) { var s = 0; for (var k = a; k <= b; k++) s += hr[k]; return htot ? Math.round(s / htot * 100) + "%" : "0%"; }
@@ -2690,7 +2783,7 @@
     var cR = h("div", { class: "card" }, h("div", { class: "h2", text: "週報" }), h("pre", { class: "st-pre", text: wr }),
       h("button", { class: "btn soft", text: "複製這份摘要", onclick: function () { copyText(wr); } }));
 
-    show(topbar("#/", "今天"), h("h1", { class: "pg-t", text: "時間統計" }), over, h("div", { class: "small" }, "下面幾張圖依選的範圍計算："), seg, cA, cB, cC, cD, cE, cF, cR);
+    show(topbar("#/", "今天"), h("h1", { class: "pg-t", text: "時間統計" }), over, h("div", { class: "small" }, "下面幾張圖依選的範圍計算："), seg, cA, cB, cC, cD, cG, cE, cF, cR);
   }
 
   // ---------- 路由 ----------
