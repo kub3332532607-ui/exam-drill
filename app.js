@@ -3,7 +3,7 @@
   var KS = window.KS, LET = ["A", "B", "C", "D"];
   var app = document.getElementById("app");
   // 版本號：和 sw.js 的 VER 保持一致，改程式時兩邊一起加一
-  var APP_VER = "ks-v68", APP_DATE = "2026-11-06";
+  var APP_VER = "ks-v69", APP_DATE = "2026-11-07";
 
   // ---------- 儲存 ----------
   var KEY = "ks_v1";
@@ -256,13 +256,17 @@
   }
   function chInfo(key) {
     var a = key.split(":"), sid = a[0], cs = chapters(sid), c = cs.filter(function (c) { return c.id === a[1]; })[0]; if (!c) return null;
-    var secs = c.sections || [], n = 0, len = 0, nx = null;
-    secs.forEach(function (x) { var r = S.pos["rd:" + sid + ":" + x.id]; if (r && r.fin) n++; else if (!nx) nx = x; len += paras(x).join("").length; });
-    var pc = paceOf(sid);
-    return { key: key, sid: sid, c: c, no: cs.indexOf(c) + 1, n: n, tot: secs.length, done: (secs.length > 0 && n === secs.length) || chTicked(key),
-      min: Math.max(10, Math.round(len / 200 * pc.v / 5) * 5), pace: pc,
+    var secs = c.sections || [], n = 0, len = 0, rlen = 0, nx = null;
+    secs.forEach(function (x) { var r = S.pos["rd:" + sid + ":" + x.id], l = paras(x).join("").length; if (r && r.fin) n++; else { if (!nx) nx = x; rlen += l; } len += l; });
+    var pc = paceOf(sid), done = (secs.length > 0 && n === secs.length) || chTicked(key);
+    // full＝全章預估；min＝還沒讀完的節的預估（排程與今日任務用這個；讀完的章用全章）
+    var full = Math.max(10, Math.round(len / 200 * pc.v / 5) * 5);
+    return { key: key, sid: sid, c: c, no: cs.indexOf(c) + 1, n: n, tot: secs.length, done: done,
+      full: full, min: done || !n ? full : Math.max(5, Math.round(rlen / 200 * pc.v / 5) * 5), pace: pc,
       href: nx ? "#/rd/" + sid + "/" + c.id + "/" + nx.id : "#/c/" + sid + "/" + c.id };
   }
+  // 章任務的做題時間（計時中停在做題畫面，記成 chq:）
+  function chqTxt(d, key) { var q = taskMin(d, "chq:" + key); return q ? "・今天做題 " + q + " 分" : ""; }
   function chMin(key) { var m = 0; Object.keys(S.tl).forEach(function (i) { var x = S.tl[i]; if (!x.del && x.k === "ch:" + key) m += x.m; }); return m; }
   // 每天可排給「讀章」的分鐘：看最近 7 天（不含今天）有讀的日子平均時數的七成（其餘給單字與刷題），限 80–150；資料不足用 170 分估
   function readBudget(today) {
@@ -370,6 +374,7 @@
             if (nx <= 0) return;
             var at = 0; set.items.some(function (it, k) { at = k + 1; return !stat(it.e, it.n); });
             add("st" + st + ":" + s.id + ":" + x.id, s.name + " " + (i + 1) + "-" + (j + 1) + (st === 1 ? " 重點題 " : " 題目 ") + nx + " 題", x.title + "・本節 " + tot + " 題（已做 " + dn + "）", "#/p/" + key + "/" + at, Math.max(5, Math.round(nx * 1.2 / 5) * 5), 1, s.id);
+            T[T.length - 1].ck = key; T[T.length - 1].goal = dn + nx;
             rem -= nx;
           });
         });
@@ -391,7 +396,7 @@
         if (!(ci.d === today || (pl0[k] && !inBx))) return;
         if (ci.done && !pl0[k] && !(pl0._nt && pl0._nt[k])) { pl0[k] = Date.now(); pl0._t = Date.now(); save(); }
         todays.push(ci);
-        add(k, subj(ci.sid).name + "：第 " + ci.no + " 章" + (ci.shift ? "（原訂 " + md(ci.od) + "）" : ""), ci.c.title + "・已讀 " + ci.n + "/" + ci.tot + " 節・約 " + ci.min + " 分" + (ci.pace.n ? "（依你的速度）" : ""), ci.href, ci.min, 0, ci.sid);
+        add(k, subj(ci.sid).name + "：第 " + ci.no + " 章" + (ci.shift ? "（原訂 " + md(ci.od) + "）" : ""), ci.c.title + "・已讀 " + ci.n + "/" + ci.tot + " 節・" + (ci.done ? "約 " + ci.full + " 分" : ci.n ? "剩約 " + ci.min + " 分（全章 " + ci.full + "）" : "約 " + ci.min + " 分") + (ci.pace.n ? "（依你的速度）" : "") + chqTxt(today, ci.key), ci.href, ci.min, 0, ci.sid);
       });
       // 今天的章都讀完了：往前拉下一章，有力氣再讀（讀完就不會再出現在後面的日子）
       var allDone = todays.length && todays.every(function (ci) { return ci.done; });
@@ -407,6 +412,7 @@
       if (tch) {
         var qs = getSet("c:" + tch.sid + ":" + tch.c.id), tot = qs ? qs.items.length : 0, dn = qs ? counts(qs.items).done : 0, quota = Math.min(tot, Math.max(15, Math.round(tot * 0.3))), left = Math.max(0, quota - dn), today25 = Math.min(25, left);
         if (tot && today25) add("q2:" + tch.key, subj(tch.sid).name + " 第 " + tch.no + " 章題目 " + today25 + " 題", "本章共 " + tot + " 題，12/5 前先做約 " + quota + " 題（已做 " + dn + "），其餘留給 7 月高普考", "#/p/c:" + tch.sid + ":" + tch.c.id + "/" + (resumeN("c:" + tch.sid + ":" + tch.c.id, tot) || 1), Math.round(today25 * 1.2 / 5) * 5, 1, tch.sid);
+        if (tot && today25) { T[T.length - 1].ck = "c:" + tch.sid + ":" + tch.c.id; T[T.length - 1].goal = dn + today25; }
         else if (!tot) add("q2:" + tch.key, "今天章節的題目", "本章沒有對應題目，改做考卷 15 題", "#/s/" + tch.sid + "/ex", 20, 1, tch.sid);
       }
       stageTasks(1, 25);
@@ -448,10 +454,12 @@
     }
     // 加碼當天第一次出現就記在 plan[今天]._bx；做完（算不出來了）也留在清單上打勾，新的接在後面
     var pl9 = S.plan[today] = S.plan[today] || {}, bx = pl9._bx || {}, has = {}, chg = false, extra9 = [];
-    T.forEach(function (t) { has[t.id] = t; if (t.tier && !bx[t.id]) { bx[t.id] = { t: t.t, sub: t.sub, href: t.href, min: t.min, sid: t.sid, ext: t.ext }; chg = true; } });
+    T.forEach(function (t) { has[t.id] = t; if (t.tier && !bx[t.id]) { bx[t.id] = { t: t.t, sub: t.sub, href: t.href, min: t.min, sid: t.sid, ext: t.ext, ck: t.ck, goal: t.goal }; chg = true; } });
     Object.keys(bx).forEach(function (id) {
       if (has[id]) { if (has[id].tier) extra9.push(has[id]); return; }
       var x = bx[id];
+      // 題目類的加碼（記了題組 ck 與目標題數 goal）：要真的做到目標題數才算完成；只是換章而消失的不自動打勾
+      if (x.ck) { var xs = getSet(x.ck), xd = xs ? counts(xs.items).done : 0; if (xd < x.goal) { extra9.push({ id: id, t: x.t, sub: x.sub + "・今天還差 " + (x.goal - xd) + " 題", href: x.href, min: x.min, tier: 1, sid: x.sid, ext: x.ext }); return; } }
       if (!pl9[id] && !(pl9._u && pl9._u[id])) { pl9[id] = Date.now(); pl9._t = Date.now(); chg = true; }
       extra9.push({ id: id, t: x.t, sub: pl9[id] ? "今天已完成" : x.sub, href: x.href, min: x.min, tier: 1, sid: x.sid, ext: x.ext });
     });
@@ -483,7 +491,7 @@
     S.run = { k: t.id, t: t.t, sid: t.sid || "", min: t.min, d: date, href: t.href, ext: !!t.ext, acc: 0, t0: Date.now(), hb: Date.now(), a: Date.now(), im: idleDefault({ k: t.id, t: t.t }) };
     lastAct = Date.now(); segMark(); save(); runBar();
   }
-  // 計時分類（ks-v64）：每段時間依當時所在畫面分成 讀課文／做題／寫作；認不得的畫面（首頁、設定…）和外連任務算成任務本來的類型，
+  // 計時分類（ks-v64）：每段時間依當時所在畫面分成 讀課文／做題／寫作；認不得的畫面（首頁、設定…）和外連任務算成任務本來的類型（讀章任務例外：記成 cho:「其他畫面」），
   // 所以紙本作答放著計時也不會變成「其他」。r.sg＝各類毫秒，r.sx＝各節毫秒（只算讀課文），r.hh＝各小時毫秒，r.a＝開始時間。
   function runKind(r) { return !r.k.indexOf("ch:") ? "read" : tlKind(r.k); }
   function hashKind() {
@@ -499,7 +507,7 @@
   function segMark() {
     var r = S.run; if (!r) return; segFlush();
     if (!r.t0) return;
-    r.kt = Date.now(); r.kk = (r.ext ? null : hashKind()) || runKind(r);
+    r.kt = Date.now(); r.kk = r.ext ? runKind(r) : hashKind() || (!r.k.indexOf("ch:") ? "oth" : runKind(r));   // 讀章計時停在首頁、設定等畫面不算讀課文（ks-v69）
     var m = /^#\/rd\/([^/]+)\/([^/]+)\/([^/]+)/.exec(location.hash || "");
     r.kx = r.kk === "read" && m ? m[1] + ":" + m[2] + ":" + m[3] : null;
   }
@@ -540,8 +548,8 @@
       var id = "t" + n.toString(36), isCh = !r.k.indexOf("ch:");
       ks.forEach(function (k, i) {
         if (!(mins[k] >= 1)) return;
-        var q = isCh && (k === "drill" || k === "write");
-        var rec = { d: r.d, k: q ? "chq:" + r.k.slice(3) : r.k, t: q ? r.t + (k === "write" ? "（寫作）" : "（做題）") : r.t, sid: r.sid, m: mins[k], ts: n, kd: k };
+        var q = isCh && k !== "read";
+        var rec = { d: r.d, k: q ? (k === "oth" ? "cho:" : "chq:") + r.k.slice(3) : r.k, t: q ? r.t + (k === "write" ? "（寫作）" : k === "oth" ? "（其他畫面）" : "（做題）") : r.t, sid: r.sid, m: mins[k], ts: n, kd: k };
         if (r.a) rec.a = r.a;
         if (!i && r.hh) { rec.hh = {}; Object.keys(r.hh).forEach(function (h2) { var v = Math.round(r.hh[h2] / 6e4); if (v >= 1) rec.hh[h2] = v; }); }
         if (k === "read" && r.sx) { rec.xs = {}; Object.keys(r.sx).forEach(function (x) { var v = Math.round(r.sx[x] / 1e3); if (v >= 30) rec.xs[x] = v; }); }
@@ -2573,7 +2581,7 @@
     Object.keys(subs).forEach(function (sid) {
       var cs = subs[sid];
       lines.push("■ " + subj(sid).name + "：完成 " + cs.filter(function (c) { return c.st === "done"; }).length + "/" + cs.length + " 章");
-      cs.forEach(function (c) { if (c.st !== "todo" || c.n) lines.push("  " + c.key + " 第" + c.no + "章 原訂 " + md(c.od) + "、現排 " + (c.d ? md(c.d) : "考前排不下") + "｜" + { done: "完成", now: "今天", todo: "未到" }[c.st] + (c.shift ? "（落後）" : "") + "｜" + c.n + "/" + c.tot + " 節｜實際 " + chMin(c.key) + " 分（估 " + c.min + "）"); });
+      cs.forEach(function (c) { if (c.st !== "todo" || c.n) lines.push("  " + c.key + " 第" + c.no + "章 原訂 " + md(c.od) + "、現排 " + (c.d ? md(c.d) : "考前排不下") + "｜" + { done: "完成", now: "今天", todo: "未到" }[c.st] + (c.shift ? "（落後）" : "") + "｜" + c.n + "/" + c.tot + " 節｜實際 " + chMin(c.key) + " 分（估全章 " + c.full + "，剩 " + (c.done ? 0 : c.min) + "）"); });
     });
     var w = []; for (var i = 6; i >= 0; i--) { var x = new Date(); x.setDate(x.getDate() - i); var ds = ymd(x); w.push(md(ds) + " " + dayMin(ds) + "分" + ((S.plan[ds] || {})._ok ? "✓" : "")); }
     lines.push("", "最近 7 天：" + w.join("、"));
