@@ -3,7 +3,7 @@
   var KS = window.KS, LET = ["A", "B", "C", "D"];
   var app = document.getElementById("app");
   // 版本號：和 sw.js 的 VER 保持一致，改程式時兩邊一起加一
-  var APP_VER = "ks-v70", APP_DATE = "2026-11-08";
+  var APP_VER = "ks-v71", APP_DATE = "2026-11-08";
 
   // ---------- 儲存 ----------
   var KEY = "ks_v1";
@@ -260,20 +260,48 @@
     secs.forEach(function (x) { var r = S.pos["rd:" + sid + ":" + x.id], l = paras(x).join("").length; if (r && r.fin) n++; else { if (!nx) nx = x; rlen += l; } len += l; });
     var pc = paceOf(sid), done = (secs.length > 0 && n === secs.length) || chTicked(key);
     // full＝全章預估；min＝還沒讀完的節的預估（排程與今日任務用這個；讀完的章用全章）
-    var full = Math.max(10, Math.round(len / 200 * pc.v / 5) * 5);
+    // ks-v71：再加上這章地特前要做、還沒做的題目（含錯題訂正）。rf/rm＝讀課文全章／剩餘，qm＝題目，wm＝其中錯題訂正
+    var rf = Math.max(10, Math.round(len / 200 * pc.v / 5) * 5), rm = done || !n ? rf : Math.max(5, Math.round(rlen / 200 * pc.v / 5) * 5);
+    var qp = qPlan(sid, c), qs = qSpeed(sid), qm = qp.n ? Math.max(5, Math.round(qp.n * qs.t / 5) * 5) : 0, wm = qp.n ? Math.round(qp.n * qs.r * qs.w) : 0;
+    var full = rf + qm;
     return { key: key, sid: sid, c: c, no: cs.indexOf(c) + 1, n: n, tot: secs.length, done: done,
-      full: full, min: done || !n ? full : Math.max(5, Math.round(rlen / 200 * pc.v / 5) * 5), pace: pc,
+      full: full, min: done ? full : rm + qm, rf: rf, rm: rm, qn: qp.n, qm: qm, wm: wm, qs: qs, pace: pc,
       href: nx ? "#/rd/" + sid + "/" + c.id + "/" + nx.id : "#/c/" + sid + "/" + c.id };
   }
+  // 這章地特前要做、還沒做的題數：有分階段的科（憲法）＝重點題（st 1）；其他科＝約三成（至少 15 題）
+  function qPlan(sid, c) {
+    if (hasStage(sid)) { var st = getSet("t:" + sid + ":" + c.id + ":1"), a = st ? st.items.length : 0; return { n: a ? a - counts(st.items).done : 0, rule: "重點題" }; }
+    var qs = getSet("c:" + sid + ":" + c.id), tot = qs ? qs.items.length : 0, quota = Math.min(tot, Math.max(15, Math.round(tot * 0.3)));
+    return { n: tot ? Math.max(0, quota - counts(qs.items).done) : 0, rule: "三成" };
+  }
+  // 做題速度（每科）：r＝第一次就錯的比例（作答 30 題以上才用實際值，限 0.1–0.6，否則 0.3）；
+  // t＝每題分鐘（含看解析、寫錯題訂正）：做題畫面的 chq: 時間 ÷ 那幾天作答的題數（20 題以上才用，限 0.5–4），否則 1＋r×2；w＝每道錯題的訂正分鐘
+  var qsCache = {}, qsGen = -1, exSub = null;
+  function qSpeed(sid) {
+    if (qsGen !== paceGen) { qsCache = {}; qsGen = paceGen; }
+    if (qsCache[sid]) return qsCache[sid];
+    if (!exSub) { exSub = {}; KS.exams.forEach(function (e) { exSub[e.id] = e.subject; }); }
+    var days = {}, M = 0, att = 0, wr = 0, N = 0;
+    Object.keys(S.tl).forEach(function (i) { var x = S.tl[i]; if (!x.del && x.k && x.k.indexOf("chq:" + sid + ":") === 0) { M += x.m; days[x.d] = 1; } });
+    Object.keys(S.stats).forEach(function (k) {
+      if (exSub[k.slice(0, k.lastIndexOf("#"))] !== sid) return;
+      var s = S.stats[k]; if (!(s.c || s.w)) return;
+      att++; if (s.w) wr++; if (s.ts && days[ymd(new Date(s.ts))]) N++;
+    });
+    var r = att >= 30 ? Math.max(0.1, Math.min(0.6, wr / att)) : 0.3, t = N >= 20 && M > 0 ? Math.max(0.5, Math.min(4, M / N)) : 1 + r * 2;
+    return (qsCache[sid] = { r: r, t: t, w: 2 * t / (1 + 2 * r), real: N >= 20 && M > 0, att: att });
+  }
+  function chEst(ci) { return ci.qn ? "讀 " + (ci.done ? 0 : ci.rm) + "＋題目 " + ci.qn + " 題約 " + ci.qm + " 分（含錯題訂正約 " + ci.wm + " 分）" : "讀 " + (ci.done ? 0 : ci.rm) + " 分（題目已做完）"; }
   // 章任務的做題時間（計時中停在做題畫面，記成 chq:）
   function chqTxt(d, key) { var q = taskMin(d, "chq:" + key); return q ? "・今天做題 " + q + " 分" : ""; }
+  function qMinAll(key) { var m = 0; Object.keys(S.tl).forEach(function (i) { var x = S.tl[i]; if (!x.del && x.k === "chq:" + key) m += x.m; }); return m; }
   function chMin(key) { var m = 0; Object.keys(S.tl).forEach(function (i) { var x = S.tl[i]; if (!x.del && x.k === "ch:" + key) m += x.m; }); return m; }
-  // 每天可排給「讀章」的分鐘：看最近 7 天（不含今天）有讀的日子平均時數的七成（其餘給單字與刷題），限 80–150；資料不足用 170 分估
+  // 每天可排給「讀章＋章題目」的分鐘：看最近 7 天（不含今天）有讀的日子平均時數的八成五（其餘給單字、英文、國文），限 80–210（ks-v71 前只算讀章：七成、限 150）；資料不足用 170 分估
   function readBudget(today) {
     var d = new Date(today), sum = 0, n = 0;
     for (var i = 1; i <= 7; i++) { d.setDate(d.getDate() - 1); var m = dayMin(ymd(d)); if (m > 0) { sum += m; n++; } }
     var avg = n >= 2 ? sum / n : 170;
-    return { avg: Math.round(avg), n: n, b: Math.max(80, Math.min(150, Math.round(avg * 0.7 / 5) * 5)) };
+    return { avg: Math.round(avg), n: n, b: Math.max(80, Math.min(210, Math.round(avg * 0.85 / 5) * 5)) };
   }
   // 重新排程：未讀完的章依原訂順序，目標是 SC.to（模擬考前一天）讀完；每天分量取「近期讀書量」與「來得及讀完所需」較大者，週末乘 SC.we。
   // 趕不上的章排進模擬期當補讀（每天約 60 分），再排不下就標 over，不排到考試之後。讀完的章（包含提前讀完的）不會再出現在後面。
@@ -335,7 +363,7 @@
       return { n: rest.length, last: last };
     }
     var B = readBudget(today).b;
-    if (today <= SC_END) while (B < 240) { var r = place(B); if (!r.n && (!r.last || r.last <= SC_END)) break; B += 5; }
+    if (today <= SC_END) while (B < 300) { var r = place(B); if (!r.n && (!r.last || r.last <= SC_END)) break; B += 5; }
     var left = place(B, true).n;
     if (!fixed && todays.length) { pl._ch = todays.map(function (c) { return c.key; }).join(","); save(); }
     order.forEach(function (ci) {
@@ -417,7 +445,7 @@
         if (!(ci.d === today || (pl0[k] && !inBx))) return;
         if (ci.done && !pl0[k] && !(pl0._nt && pl0._nt[k])) { pl0[k] = Date.now(); pl0._t = Date.now(); save(); }
         todays.push(ci);
-        add(k, subj(ci.sid).name + "：第 " + ci.no + " 章" + (ci.shift ? "（原訂 " + md(ci.od) + "）" : ""), ci.c.title + "・已讀 " + ci.n + "/" + ci.tot + " 節・" + (ci.done ? "約 " + ci.full + " 分" : ci.n ? "剩約 " + ci.min + " 分（全章 " + ci.full + "）" : "約 " + ci.min + " 分") + (ci.pace.n ? "（依你的速度）" : "") + chqTxt(today, ci.key), ci.href, ci.min, 0, ci.sid);
+        add(k, subj(ci.sid).name + "：第 " + ci.no + " 章" + (ci.shift ? "（原訂 " + md(ci.od) + "）" : ""), ci.c.title + "・已讀 " + ci.n + "/" + ci.tot + " 節・" + (ci.done ? "約 " + ci.full + " 分" : (ci.n ? "剩約 " : "約 ") + ci.min + " 分：" + chEst(ci)) + (ci.pace.n || ci.qs.real ? "（依你的速度）" : "") + chqTxt(today, ci.key), ci.href, ci.min, 0, ci.sid);
       });
       // 今天的章都讀完了：往前拉下一章，有力氣再讀（讀完就不會再出現在後面的日子）
       var allDone = todays.length && todays.every(function (ci) { return ci.done; });
@@ -426,13 +454,15 @@
         if (nxt) add("ch:" + nxt.key, "提前讀：" + subj(nxt.sid).name + " 第 " + nxt.no + " 章", nxt.c.title + "・原排 " + md(nxt.d) + "，讀完後面就不再排它", nxt.href, nxt.min, 1, nxt.sid);
       }
       if (isBuf) {
-        add("wk", "錯題總複習", wb.tot ? "本週錯題回頭看，" + subj(top).name + " 最多" : "挑本週最弱的一科回頭看", wb.tot ? "#/s/" + top + "/wr" : "#/", 40, 0, top || "");
+        // 錯題重做：本週答錯（或加入錯題本）的題目，每題約 1.5 分（重做＋看訂正），限 20–90 分
+        var wkN = 0, wk0 = Date.now() - 7 * 864e5; Object.keys(S.stats).forEach(function (k) { var x = S.stats[k]; if (isWrong(x) && +x.ts >= wk0) wkN++; });
+        add("wk", "錯題總複習", (wb.tot ? "本週錯題回頭看，" + subj(top).name + " 最多" : "挑本週最弱的一科回頭看") + (wkN ? "・本週錯 " + wkN + " 題，每題約 1.5 分" : ""), wb.tot ? "#/s/" + top + "/wr" : "#/", Math.max(20, Math.min(90, Math.round(wkN * 1.5 / 5) * 5)), 0, top || "");
       }
       // 選擇題：12/5 前每章只做約三成（未做優先），其餘留到 7 月；一次最多 25 題
       var tchs = todays.filter(function (ci) { return !hasStage(ci.sid); }), tch = tchs.filter(function (ci) { return !ci.done; })[0] || tchs[0];
       if (tch) {
         var qs = getSet("c:" + tch.sid + ":" + tch.c.id), tot = qs ? qs.items.length : 0, dn = qs ? counts(qs.items).done : 0, quota = Math.min(tot, Math.max(15, Math.round(tot * 0.3))), left = Math.max(0, quota - dn), today25 = Math.min(25, left);
-        if (tot && today25) add("q2:" + tch.key, subj(tch.sid).name + " 第 " + tch.no + " 章題目 " + today25 + " 題", "本章共 " + tot + " 題，12/5 前先做約 " + quota + " 題（已做 " + dn + "），其餘留給 7 月高普考", "#/p/c:" + tch.sid + ":" + tch.c.id + "/" + (resumeN("c:" + tch.sid + ":" + tch.c.id, tot) || 1), Math.round(today25 * 1.2 / 5) * 5, 1, tch.sid);
+        if (tot && today25) add("q2:" + tch.key, subj(tch.sid).name + " 第 " + tch.no + " 章題目 " + today25 + " 題", "本章共 " + tot + " 題，12/5 前先做約 " + quota + " 題（已做 " + dn + "，已算進章的估時），其餘留給 7 月高普考", "#/p/c:" + tch.sid + ":" + tch.c.id + "/" + (resumeN("c:" + tch.sid + ":" + tch.c.id, tot) || 1), Math.round(today25 * 1.2 / 5) * 5, 1, tch.sid);
         if (tot && today25) { T[T.length - 1].ck = "c:" + tch.sid + ":" + tch.c.id; T[T.length - 1].goal = dn + today25; }
         else if (!tot) add("q2:" + tch.key, "今天章節的題目", "本章沒有對應題目，改做考卷 15 題", "#/s/" + tch.sid + "/ex", 20, 1, tch.sid);
       }
@@ -2602,7 +2632,7 @@
     Object.keys(subs).forEach(function (sid) {
       var cs = subs[sid];
       lines.push("■ " + subj(sid).name + "：完成 " + cs.filter(function (c) { return c.st === "done"; }).length + "/" + cs.length + " 章");
-      cs.forEach(function (c) { if (c.st !== "todo" || c.n) lines.push("  " + c.key + " 第" + c.no + "章 原訂 " + md(c.od) + "、現排 " + (c.d ? md(c.d) : "考前排不下") + "｜" + { done: "完成", now: "今天", todo: "未到" }[c.st] + (c.shift ? "（落後）" : "") + "｜" + c.n + "/" + c.tot + " 節｜實際 " + chMin(c.key) + " 分（估全章 " + c.full + "，剩 " + (c.done ? 0 : c.min) + "）"); });
+      cs.forEach(function (c) { if (c.st !== "todo" || c.n) lines.push("  " + c.key + " 第" + c.no + "章 原訂 " + md(c.od) + "、現排 " + (c.d ? md(c.d) : "考前排不下") + "｜" + { done: "完成", now: "今天", todo: "未到" }[c.st] + (c.shift ? "（落後）" : "") + "｜" + c.n + "/" + c.tot + " 節｜實際 讀 " + chMin(c.key) + " 分＋題 " + qMinAll(c.key) + " 分（估全章 " + c.full + "＝讀 " + c.rf + "＋題 " + c.qm + "，剩 " + (c.done ? c.qm : c.min) + (c.qn ? "，題目還有 " + c.qn + " 題" : "") + "）"); });
     });
     var w = []; for (var i = 6; i >= 0; i--) { var x = new Date(); x.setDate(x.getDate() - i); var ds = ymd(x); w.push(md(ds) + " " + dayMin(ds) + "分" + ((S.plan[ds] || {})._ok ? "✓" : "")); }
     lines.push("", "最近 7 天：" + w.join("、"));
@@ -2614,7 +2644,7 @@
     var fin = !L.filter(function (c) { return !c.done; }).length ? "所有章都讀完了。" : L.left ? "照這個分量，考前還有 " + L.left + " 章排不下，要再多讀才趕得上。" : lastD <= SC_END ? "照這個分量，全部章節 " + md(lastD) + " 讀完，趕得上 11/23 模擬考。" : "照這個分量，全部章節 " + md(lastD) + " 讀完；11/23 起的章是模擬考之外的補讀。";
     L.forEach(function (c) { var o = subs[c.sid] = subs[c.sid] || { d: 0, t: 0, l: 0 }; o.t++; if (c.st === "done") o.d++; if (c.shift) o.l++; if (c.d) (byDay[c.d] = byDay[c.d] || []).push(c); });
     var sum = h("div", { class: "card" }, h("div", { class: "h2", text: late.length ? "比原訂慢 " + late.length + " 章，已自動往後排" : "沒有落後 👍" }),
-      h("div", { class: "small", text: (today <= SC_END ? "目標 11/22 前讀完。平日每天排約 " + fmtM(L.B) + " 讀章，週末 " + fmtM(Math.round(L.B * (SC.we || 1.5))) + "。" + fin
+      h("div", { class: "small", text: (today <= SC_END ? "目標 11/22 前讀完。平日每天排約 " + fmtM(L.B) + " 讀章＋章題目，週末 " + fmtM(Math.round(L.B * (SC.we || 1.5))) + "。" + fin
         : today <= MOCK_END ? "模擬期：考卷之外，每天排約 1 小時補讀。" + (L.left ? "還有 " + L.left + " 章排不下。" : "")
         : today <= EXAM_END ? "收尾期不讀新章，只看錯題與易錯。" : "地特考完了，剩下的章依序往後排。") + "提前讀完的章不會再出現在後面。" }),
       Object.keys(subs).map(function (sid) { var o = subs[sid]; return h("div", { class: "sc-sum", style: "--c:" + (COL[sid] || COL[""]) }, h("b", { text: subj(sid).name }), h("span", { text: "　完成 " + o.d + "/" + o.t + " 章" + (o.l ? "・落後 " + o.l : "") })); }),
