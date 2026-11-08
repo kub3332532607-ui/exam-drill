@@ -3,7 +3,7 @@
   var KS = window.KS, LET = ["A", "B", "C", "D"];
   var app = document.getElementById("app");
   // 版本號：和 sw.js 的 VER 保持一致，改程式時兩邊一起加一
-  var APP_VER = "ks-v69", APP_DATE = "2026-11-07";
+  var APP_VER = "ks-v70", APP_DATE = "2026-11-08";
 
   // ---------- 儲存 ----------
   var KEY = "ks_v1";
@@ -278,6 +278,13 @@
   // 重新排程：未讀完的章依原訂順序，目標是 SC.to（模擬考前一天）讀完；每天分量取「近期讀書量」與「來得及讀完所需」較大者，週末乘 SC.we。
   // 趕不上的章排進模擬期當補讀（每天約 60 分），再排不下就標 over，不排到考試之後。讀完的章（包含提前讀完的）不會再出現在後面。
   // 今天的章第一次排定後固定（S.plan[今天]._ch），讀完也不會被換掉。
+  // 章是哪天讀完的：先看最早打勾的日子（before：只看這天以前），沒有打勾就看最後一節標成已讀的時間
+  function doneDay(ci, before) {
+    var id = "ch:" + ci.key, ds = Object.keys(S.plan).filter(function (d) { return S.plan[d] && S.plan[d][id] && (!before || d < before); }).sort();
+    if (ds.length) return ds[0];
+    var ts = 0; (ci.c.sections || []).forEach(function (x) { var r = S.pos["rd:" + ci.sid + ":" + x.id]; if (r && r.fin && +r.ts > ts) ts = +r.ts; });
+    return ts ? ymd(new Date(ts)) : null;
+  }
   var planCache = null;
   function schedList(today) {
     if (planCache && planCache.t === today && planCache.g === paceGen) return planCache.v;
@@ -286,6 +293,20 @@
     var pl = S.plan[today] = S.plan[today] || {}, placed = {}, out = [];
     function put(ci, d) { ci.d = d; placed[ci.key] = 1; }
     var fixed = pl._ch ? pl._ch.split(",") : null, todays = [];
+    // 今天的章是在這台裝置當下的資料排定的；同步後才知道「今天以前就讀完」的章，從今天拿掉、打勾還給讀完那天（ks-v70）
+    if (fixed) {
+      var drop = order.filter(function (ci) { var dd; return fixed.indexOf(ci.key) >= 0 && ci.done && ci.n === ci.tot && (dd = doneDay(ci, today)) && dd < today && (ci.dd = dd); });
+      if (drop.length) {
+        drop.forEach(function (ci) {
+          var id = "ch:" + ci.key, p = S.plan[ci.dd] = S.plan[ci.dd] || {};
+          if (!p[id]) { p[id] = Date.now(); p._t = Date.now(); }
+          if (pl[id]) { delete pl[id]; (pl._u = pl._u || {})[id] = Date.now(); }
+          fixed.splice(fixed.indexOf(ci.key), 1);
+        });
+        if (fixed.length) pl._ch = fixed.join(","); else { delete pl._ch; fixed = null; }
+        pl._t = Date.now(); save();
+      }
+    }
     if (fixed) order.forEach(function (ci) { if (fixed.indexOf(ci.key) >= 0) { put(ci, today); todays.push(ci); } });
     var rest0 = order.filter(function (ci) { return !ci.done && !placed[ci.key]; });
     function place(B, apply) {
@@ -318,7 +339,7 @@
     var left = place(B, true).n;
     if (!fixed && todays.length) { pl._ch = todays.map(function (c) { return c.key; }).join(","); save(); }
     order.forEach(function (ci) {
-      if (!placed[ci.key]) { if (ci.done) ci.d = ci.od; else { ci.d = null; ci.over = true; } }   // 讀完的章留在原訂日期；排不下的章不給日期
+      if (!placed[ci.key]) { if (ci.done) ci.d = doneDay(ci) || ci.od; else { ci.d = null; ci.over = true; } }   // 讀完的章放在讀完那天（找不到才用原訂日期）；排不下的章不給日期
       ci.shift = !ci.done && ci.od < today;
       ci.st = ci.done ? "done" : ci.d === today ? "now" : "todo";
       out.push(ci);
