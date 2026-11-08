@@ -3,7 +3,7 @@
   var KS = window.KS, LET = ["A", "B", "C", "D"];
   var app = document.getElementById("app");
   // 版本號：和 sw.js 的 VER 保持一致，改程式時兩邊一起加一
-  var APP_VER = "ks-v71", APP_DATE = "2026-11-08";
+  var APP_VER = "ks-v72", APP_DATE = "2026-11-08";
 
   // ---------- 儲存 ----------
   var KEY = "ks_v1";
@@ -17,6 +17,7 @@
   function migrate() {
     S.attempts.forEach(function (a) { if (!a.set && a.exam) a.set = "e:" + a.exam; });
     S.gm = S.gm || {}; S.essay = S.essay || {}; S.print = S.print || {}; S.marks = S.marks || {}; S.repq = S.repq || {}; S.read = S.read || {}; S.nts = S.nts || {}; S.del = S.del || {}; S.qm = S.qm || {}; S.qx = S.qx || {}; S.pos = S.pos || {}; S.plan = S.plan || {}; S.vw = S.vw || {}; S.tl = S.tl || {};
+    S.pt = S.pt || {}; S.pt.log = S.pt.log || {};   // 監考官巡查：只存本機，不同步
   }
   // 離開前提醒：只看會同步的欄位，和「上次雲端同步完」的內容比；計時心跳這類只存本機的變動不算
   var SIGK = "ks_sig";
@@ -581,10 +582,10 @@
     if (Date.now() - lastAct > idleMin(r) * 6e4) { tAway(lastAct); r.idl = 1; save(); runBar(); }
   }, 5000);
   function tPause() { var r = S.run; if (!r || !r.t0) return; var n = Date.now(); segFlush(n); hourAdd(r.t0, n); r.acc += n - r.t0; r.t0 = null; r.p = 1; save(); runBar(); }
-  function tResume() { var r = S.run; if (!r) return; r.t0 = Date.now(); r.p = 0; r.away = null; r.idl = 0; lastAct = Date.now(); r.a = r.a || r.t0; segMark(); save(); runBar(); }
+  function tResume() { var r = S.run; if (!r) return; if (r.ext) S.pt.last = Date.now(); r.t0 = Date.now(); r.p = 0; r.away = null; r.idl = 0; lastAct = Date.now(); r.a = r.a || r.t0; segMark(); save(); runBar(); }
   function tStop(quiet) {
     var r = S.run; if (!r) return;
-    var n = Date.now(); if (r.t0) { segFlush(n); hourAdd(r.t0, n); }
+    var n = Date.now(); if (r.ext) S.pt.last = n; if (r.t0) { segFlush(n); hourAdd(r.t0, n); }
     var ms = r.acc + (r.t0 ? n - r.t0 : 0), m = Math.round(ms / 6e4), cur = runKind(r), mq = 0;
     S.run = null;
     if (m >= 1) {
@@ -675,6 +676,183 @@
   }
   document.addEventListener("visibilitychange", function () { if (document.hidden) tAway(); else tBack(); });
   window.addEventListener("pagehide", function () { tAway(); });
+  // ---------- 監考官巡查（ks-v72）：只在計時中巡查，外部任務（單字）不巡查 ----------
+  // S.pt（只存本機）：left＝距離下次巡查的毫秒（只在課文頁計時中倒數，暫停或結束計時都不會重來）；d＝日期；last＝上次計時中的時間；
+  // at＝離開前讀到的位置 {sid,cid,xid,p}；log＝{日期:{ok,bad,none,over}}。S.read（裝置設定）：ptOff、ptf（a/b/c）、ptMute、ptSoft。
+  var PT = { box: null, ctx: null, q: null, qms: {}, qdone: {}, ac: null, tts: false, tick: 0, back: false };
+  var PT_FREQ = { a: [8, 20], b: [4, 10], c: [15, 30] };
+  var PT_OWL = '<svg viewBox="0 0 460 170" width="100%" aria-hidden="true"><circle cx="230" cy="130" r="195" fill="#444441"/><path d="M150 0h160l14 26H136z" fill="#0b0b0b"/><rect x="100" y="22" width="260" height="10" fill="#2C2C2A"/><path d="M78 40l132 42-4 14L72 56zM382 40L250 82l4 14 134-40z" fill="#0b0b0b"/><circle cx="152" cy="108" r="46" fill="#FAC775"/><circle cx="308" cy="108" r="46" fill="#FAC775"/><circle class="pt-pu" data-x="152" data-y="108" cx="152" cy="108" r="24" fill="#141412"/><circle class="pt-pu" data-x="308" data-y="108" cx="308" cy="108" r="24" fill="#141412"/><path d="M230 110l-18 22 18 26 18-26z" fill="#A32D2D"/></svg>';
+  function ptRand() { var f = PT_FREQ[S.read.ptf || "b"] || PT_FREQ.b; return (f[0] + Math.random() * (f[1] - f[0])) * 6e4; }
+  function ptLog(f) { var d = ymd(new Date()), o = S.pt.log[d] = S.pt.log[d] || {}; o[f] = (o[f] || 0) + 1; save(); }
+  function ptTone(f, d, v) {
+    if (S.read.ptMute) return;
+    try {
+      PT.ac = PT.ac || new (window.AudioContext || window.webkitAudioContext)();
+      if (PT.ac.state === "suspended") PT.ac.resume();
+      var o = PT.ac.createOscillator(), g = PT.ac.createGain(), t = PT.ac.currentTime;
+      o.frequency.value = f; g.gain.setValueAtTime(v, t); g.gain.exponentialRampToValueAtTime(0.001, t + d);
+      o.connect(g); g.connect(PT.ac.destination); o.start(); o.stop(t + d);
+    } catch (e) {}
+  }
+  function ptSents(sec, from, to) {
+    var out = [];
+    paras(sec).forEach(function (raw, i) {
+      if (i < from || i > to) return;
+      var pp = parsePara(raw); if (pp.kind !== "p" && pp.kind !== "tip") return;
+      pp.plain.split(/(?<=[。！？；])/).forEach(function (s) { s = s.trim(); if (s.length >= 14) out.push(clip(s, 58)); });
+    });
+    return out;
+  }
+  function ptShuffle(a) { for (var i = a.length - 1; i > 0; i--) { var j = Math.floor(Math.random() * (i + 1)), t = a[i]; a[i] = a[j]; a[j] = t; } return a; }
+  // 正確句取自最近約 600 字；另外兩句優先取同一章的其他節，不夠才用同科其他章
+  function ptPick(sid, cid, sec, cur) {
+    var ps = paras(sec), from = cur, n = 0;
+    while (from > 0 && n < 600) { from--; n += ps[from].length; }
+    var to = cur, good = ptSents(sec, from, to);
+    while (!good.length && ++to < ps.length) good = ptSents(sec, from, to);   // 停在小標或圖表上：往下找最近的段落
+    if (!good.length) return null;
+    var ans = good[Math.floor(Math.random() * good.length)], pool = [], far = [];
+    chapters(sid).forEach(function (c) { (c.sections || []).forEach(function (x) { if (x === sec) return; var a = ptSents(x, 0, 1e9); if (c.id === cid) pool = pool.concat(a); else far = far.concat(a); }); });
+    function take(list, out) { ptShuffle(list).some(function (t) { if (t !== ans && out.indexOf(t) < 0) out.push(t); return out.length >= 2; }); return out; }
+    var wrong = take(pool, []); if (wrong.length < 2) wrong = take(far, wrong);
+    if (wrong.length < 2) return null;
+    return ptShuffle([{ t: ans, ok: true }, { t: wrong[0] }, { t: wrong[1] }]);
+  }
+  function ptClose() { if (PT.box) { clearInterval(PT.box._iv); (PT.box._w || []).forEach(clearTimeout); PT.box.remove(); PT.box = null; } }
+  function ptResume() { if (PT.tts && TT.on && TT.paused) { speechSynthesis.resume(); ttsPaused(false); if (TT.rearm) TT.rearm(); } PT.tts = false; }
+  function ptShell() {
+    var face = h("div", { class: "pt-face" }); face.innerHTML = PT_OWL;
+    var inner = h("div", { class: "pt-in" }, face), box = h("div", { class: "ptw" + (S.read.ptSoft ? " soft" : ""), role: "dialog", "aria-label": "考場巡查" }, inner);
+    box.addEventListener("pointermove", function (ev) {
+      var r = box.getBoundingClientRect(), dx = (ev.clientX - r.left) / r.width - 0.5, dy = (ev.clientY - r.top) / r.height - 0.3;
+      [].forEach.call(box.querySelectorAll(".pt-pu"), function (p) { p.setAttribute("cx", +p.getAttribute("data-x") + dx * 22); p.setAttribute("cy", +p.getAttribute("data-y") + dy * 14); });
+    });
+    box._in = inner; box._w = []; PT.box = box; document.body.appendChild(box);
+    return box;
+  }
+  // kind：pat＝定時巡查；back＝離開超過 10 分鐘回來，問離開前讀到哪一句（答錯不倒退、不記錄）
+  function ptOpen(kind, sid, cid, sec, cur, ctx) {
+    var opts = ptPick(sid, cid, sec, cur); if (!opts) return false;
+    PT.tts = TT.on && !TT.paused;
+    if (PT.tts) { speechSynthesis.pause(); ttsPaused(true); clearTimeout(TT.wd); }
+    var box = ptShell(), soft = !!S.read.ptSoft, total = soft ? 20 : 15, left = total, started = Date.now();
+    var ask = kind === "back" ? "回來了。離開前讀到哪一句？" : "停。剛剛讀到哪一句？";
+    var say = h("div", { class: "pt-say", text: "叩。" }), num = h("div", { class: "pt-num", text: String(total) }), bar = h("i"), res = h("div", { class: "pt-res" }), stamp = h("div", { class: "pt-stamp" });
+    var list = h("div", { class: "pt-opts", hidden: true }), btns = [];
+    function finish(msg, txt, st, after) {
+      clearInterval(box._iv); box.classList.remove("hot"); say.textContent = msg; res.textContent = txt;
+      btns.forEach(function (b, i) { b.disabled = true; if (opts[i].ok) b.classList.add("ans"); });
+      if (st) { stamp.textContent = st; stamp.classList.add("on"); ptTone(70, 0.25, 0.5); }
+      box._w.push(setTimeout(function () { ptClose(); after(); }, 1300));
+    }
+    function pick(o, b) {
+      if (kind === "back") return finish("……繼續。", o.ok ? "記得就好，接著讀。" : "沒關係，接著讀。", "", ptResume);
+      if (o.ok) { ptLog("ok"); return finish("……繼續。", "通過，接著讀。", "", ptResume); }
+      b.classList.add("bad"); ptLog("bad");
+      finish("這段重讀。", "回到這個小標開頭，最多退回約 5 分鐘。", "重讀", function () { PT.tts = false; ptRewind(ctx, cur); });
+    }
+    opts.forEach(function (o) { var b = h("button", { class: "pt-opt", text: o.t, onclick: function () { pick(o, b); } }); btns.push(b); list.appendChild(b); });
+    box._in.appendChild(h("div", { class: "pt-body" },
+      h("div", { class: "pt-top" }, h("div", null, h("div", { class: "pt-tag", text: "考場巡查" }), say), num),
+      h("div", { class: "pt-bar" }, bar), list, res));
+    box.appendChild(stamp);
+    ["叩。", "叩、叩。", "叩、叩、叩。"].forEach(function (s, i) { box._w.push(setTimeout(function () { say.textContent = s; ptTone(95, 0.16, 0.5); }, i * 800)); });
+    box._w.push(setTimeout(function () {
+      say.textContent = ask; list.hidden = false;
+      box._iv = setInterval(function () {
+        if (document.hidden) return;
+        left--; num.textContent = left; bar.style.width = (left / total * 100) + "%";
+        if (left <= 5 && left > 0 && !soft) { box.classList.add("hot"); ptTone(880, 0.06, 0.14); }
+        if (left > 0) return;
+        if (kind === "back") return finish("……繼續。", "接著讀。", "", ptResume);
+        ptLog("none");
+        finish("人呢？", "沒有回應，朗讀和計時都先暫停。", "暫停", function () { PT.tts = false; var r = S.run; if (r && r.t0) { tAway(started); r.idl = 1; save(); runBar(); } });
+      }, 1000);
+    }, 2600));
+    return true;
+  }
+  function ptRewind(ctx, cur) {
+    if (!ctx || !ctx.art.isConnected) return;
+    var ps = paras(ctx.sec), lim = 1000 * (TT.on ? (S.read.ttsr || 1) : 1), n = 0, to = cur;
+    for (var i = cur; i >= 0; i--) { n += ps[i].length; if (n > lim) break; to = i; if (ps[i].slice(0, 3) === "## ") break; }
+    if (TT.on && TT.art === ctx.art) ttsSpeak(to);
+    else if (ctx.art.children[to]) ctx.art.children[to].scrollIntoView({ block: "start", behavior: "smooth" });
+  }
+  // 做題超時提醒：不抽問、不暫停，只提醒一次
+  function ptOver(min) {
+    var box = ptShell();
+    box._in.appendChild(h("div", { class: "pt-body" },
+      h("div", { class: "pt-top" }, h("div", null, h("div", { class: "pt-tag", text: "考場巡查" }), h("div", { class: "pt-say", text: "這題已經 " + min + " 分鐘。先做決定或標記。" }))),
+      h("button", { class: "pt-opt", text: "知道了", onclick: ptClose })));
+    ptTone(95, 0.16, 0.5);
+  }
+  function ptBusy() {
+    if (rmodal || document.querySelector(".sheet-bg,.fullov,.fdlg")) return true;
+    var w = window.getSelection(); return !!(w && !w.isCollapsed);
+  }
+  function ptTick() {
+    var r = S.run, pt = S.pt, now = Date.now();
+    if (PT.ctx && PT.ctx.art.isConnected && PT.ctx.paint) PT.ctx.paint();
+    if (!r || !r.t0 || document.hidden || PT.box) return;
+    if (pt.last && now - pt.last > 6e5) PT.back = true;
+    pt.last = now;
+    if (++PT.tick % 15 === 0) save();
+    if (r.ext || S.read.ptOff) return;
+    var hash = location.hash;
+    if (hash.indexOf("#/p/") === 0) {
+      var q = PT.q;
+      if (q && q.k === curQ && picked[q.k] == null && !PT.qdone[q.k]) {
+        PT.qms[q.k] = (PT.qms[q.k] || 0) + 1000;
+        if (PT.qms[q.k] >= q.lim && !ptBusy()) { PT.qdone[q.k] = 1; ptLog("over"); ptOver(Math.round(q.lim / 6e4)); }
+      }
+      return;
+    }
+    if (hash.indexOf("#/rd/") !== 0) return;
+    var c = PT.ctx; if (!c || !c.art.isConnected) return;
+    var today = ymd(new Date());
+    if (pt.d !== today || pt.left == null) { pt.d = today; pt.left = Math.max(3e5, ptRand()); }
+    var cur = TT.on && TT.art === c.art ? TT.i : c.top(), busy = ptBusy();
+    if (PT.back && !busy) {
+      PT.back = false;
+      var a = pt.at, sc = a && section(a.sid, a.cid, a.xid);
+      if (sc && ptOpen("back", a.sid, a.cid, sc, Math.min(a.p, paras(sc).length - 1), null)) return;
+    }
+    pt.at = { sid: c.sid, cid: c.cid, xid: c.xid, p: cur };
+    pt.left -= 1000;
+    if (pt.left <= 0 && !busy) pt.left = ptOpen("pat", c.sid, c.cid, c.sec, cur, c) ? ptRand() : 6e4;
+  }
+  setInterval(ptTick, 1000);
+  window.addEventListener("hashchange", function () { if (PT.box) { ptClose(); PT.tts = false; } });
+  function ptCard() {
+    var R = S.read;
+    function chip(on, label, fn) { return h("button", { class: "chip", "aria-pressed": String(!!on), text: label, onclick: function () { fn(); save(); route(); } }); }
+    return h("div", { class: "card" }, h("div", { class: "h2", text: "監考官巡查" }),
+      h("div", { class: "small", text: "計時中讀課文時，貓頭鷹監考官會不定時來問剛剛讀到哪一句；做題時超過 2 分鐘（有短文的題 4 分鐘）會提醒一次。背單字不巡查。暫停或結束計時，倒數也不會重來。" }),
+      h("div", { class: "chips" }, chip(!R.ptOff, "開", function () { R.ptOff = 0; }), chip(R.ptOff, "關", function () { R.ptOff = 1; })),
+      h("div", { class: "small", text: "多久巡查一次" }),
+      h("div", { class: "chips" }, [["a", "8–20 分鐘"], ["b", "4–10 分鐘"], ["c", "15–30 分鐘"]].map(function (o) { return chip((R.ptf || "b") === o[0], o[1], function () { R.ptf = o[0]; S.pt.left = ptRand(); }); })),
+      h("div", { class: "small", text: "聲音與強度" }),
+      h("div", { class: "chips" }, chip(!R.ptMute, "有聲音", function () { R.ptMute = 0; }), chip(R.ptMute, "靜音", function () { R.ptMute = 1; }), chip(!R.ptSoft, "高壓", function () { R.ptSoft = 0; }), chip(R.ptSoft, "一般", function () { R.ptSoft = 1; })),
+      h("div", { class: "h2", style: "margin-top:16px", text: "長選項判斷卡" }),
+      h("div", { class: "small", text: "電腦版遇到四個選項合計超過 100 字的題目，右側出現判斷卡，每個選項都標 ○、✕ 或 ? 才能作答。" }),
+      h("div", { class: "chips" }, chip(!R.qjOff, "開", function () { R.qjOff = 0; }), chip(R.qjOff, "關", function () { R.qjOff = 1; })),
+      h("div", { class: "h2", style: "margin-top:16px", text: "時間統計的空檔" }),
+      h("div", { class: "chips" }, chip(!R.gapOff, "顯示", function () { R.gapOff = 0; }), chip(R.gapOff, "不顯示", function () { R.gapOff = 1; })));
+  }
+  // 時間統計：今天的巡查結果，以及從第一次開始計時到現在的計時與空檔
+  function ptStats(today, timed) {
+    var o = S.pt.log[today] || {}, first = 0;
+    Object.keys(S.tl).forEach(function (i) { var x = S.tl[i]; if (!x.del && x.d === today && x.a && (!first || x.a < first)) first = x.a; });
+    var r = S.run, live = 0;
+    if (r && r.d === today) { live = runMs() / 6e4; if (r.a && (!first || r.a < first)) first = r.a; }
+    var card = h("div", { class: "card" }, h("div", { class: "h2", text: "今天的巡查與空檔" }),
+      h("div", { class: "small", text: "巡查：通過 " + (o.ok || 0) + "、答錯 " + (o.bad || 0) + "、沒回應 " + (o.none || 0) + "；做題超時提醒 " + (o.over || 0) + " 次。" }));
+    if (first && !S.read.gapOff) {
+      var all = Math.max(0, (Date.now() - first) / 6e4), t = timed + live;
+      card.appendChild(h("div", { class: "small", text: "從第一次開始算起已過 " + fmtM(all) + "：計時 " + fmtM(t) + "，空檔 " + fmtM(Math.max(0, all - t)) + "。空檔可能包含吃飯或休息，只當參考。" }));
+    }
+    return card;
+  }
   function runInit() {
     var r = S.run; if (!r) return;
     // 上次計時中被關掉：從最後一次心跳算起當作離開
@@ -853,7 +1031,7 @@
     var idle = h("div", { class: "card" }, h("div", { class: "h2", text: "計時：閒置幾分鐘就暫停" }),
       h("div", { class: "small", text: "計時中這麼久沒有觸控或捲動，就先暫停並問你要不要算。申論、作文至少 20 分鐘。寫在紙上的話選長一點，或在計時列按 ⏳ 只改這一次。朗讀中不算閒置。" }),
       h("div", { class: "chips" }, IDLE_OPTS.map(function (v) { return h("button", { class: "chip", "aria-pressed": String((S.idle || 3) === v), text: v + " 分鐘", onclick: function () { S.idle = v; save(); route(); } }); })));
-    show(topbar(), h("h1", { class: "pg-t", text: "設定" }), syncCard(), theme, idle,
+    show(topbar(), h("h1", { class: "pg-t", text: "設定" }), syncCard(), theme, idle, ptCard(),
       h("div", { class: "card" }, h("div", { class: "h2", text: "備份" }), h("div", { class: "small", text: "進度存在這個瀏覽器。也可以匯出成檔案，到另一台裝置匯入。" }),
         h("div", { class: "btns" }, h("button", { class: "btn soft", text: "匯出進度", onclick: exportData }), h("label", { class: "btn soft", for: "imp", text: "匯入進度" }),
           h("input", { id: "imp", type: "file", accept: "application/json", hidden: true, onchange: importData }))),
@@ -1450,11 +1628,36 @@
     // 上次的劃記：重寫時預設隱藏，作答後、開劃記或點「顯示」才出現
     curQ = k;
     var vis = qmode || pk != null || !!qshow[k], old = hasQm(it);
-    var opts = h("div", { class: "opts" });
+    PT.q = pk == null ? { k: k, lim: q.g ? 24e4 : 12e4 } : null;
+    // 長選項判斷卡：電腦版、四個選項合計超過 100 字才出現，每項都判斷完才能作答
+    var jc = pk == null && !S.read.qjOff && q.o.join("").length > 100 && window.matchMedia("(min-width: 900px)").matches, jm = qj[k] = qj[k] || {};
+    function jVal(i) { return vis && qxOf(k).indexOf(i) >= 0 ? "x" : jm[i]; }
+    function jAll() { return q.o.every(function (_, i) { return !!jVal(i); }); }
+    var opts = h("div", { class: "opts" }), jBox = null;
     q.o.forEach(function (_, i) {
       var cls = pk == null ? "" : ok(q, i) ? "right" : i === pk ? "wrong" : "dim";
-      opts.appendChild(optEl(it, i, cls, pk == null ? function () { picked[k] = i; record(it.e, it.n, ok(q, i)); save(); viewPractice(key, n); } : null, qmode, vis));
+      opts.appendChild(optEl(it, i, cls, pk == null ? function () {
+        if (jc && !jAll()) { toast("先判斷完每個選項"); if (jBox) { jBox.classList.remove("nudge"); void jBox.offsetWidth; jBox.classList.add("nudge"); } return; }
+        picked[k] = i; record(it.e, it.n, ok(q, i)); save(); viewPractice(key, n);
+      } : null, qmode, vis));
     });
+    if (jc) {
+      var jSet = function (i, v) {
+        var cur = jVal(i), inX = qxOf(k).indexOf(i) >= 0;
+        if (cur === v) { if (v === "x") { toggleX(k, i); } delete jm[i]; }
+        else if (v === "x") { if (!inX) toggleX(k, i); qshow[k] = true; delete jm[i]; }
+        else { if (inX) toggleX(k, i); jm[i] = v; }
+        viewPractice(key, n);
+      };
+      jBox = h("aside", { class: "jcard" }, h("div", { class: "jc-t", text: "判斷卡" }),
+        q.o.map(function (_, i) {
+          var v = jVal(i);
+          return h("div", { class: "jc-row" }, h("span", { class: "jc-l", text: LET[i] }), [["o", "○"], ["x", "✕"], ["q", "?"]].map(function (m) {
+            return h("button", { class: "jc-b" + (v === m[0] ? " on " + m[0] : ""), "aria-label": LET[i] + " 標記 " + m[1], "aria-pressed": String(v === m[0]), text: m[1], onclick: function () { jSet(i, m[0]); } });
+          }));
+        }),
+        h("div", { class: "small", text: jAll() ? "都判斷完了，可以作答。" : "全部標完才能作答。" }));
+    }
     var tools = h("div", { class: "qtools" }, modeBtn(qmode, function () { qmode = !qmode; qHide(); viewPractice(key, n); }),
       !vis && old ? h("button", { class: "link", text: "顯示上次劃記（" + old + "）", onclick: function () { qshow[k] = true; viewPractice(key, n); } }) : null,
       coarse ? null : h("button", { class: "link", "aria-pressed": String(!!S.read.qauto), text: "選字後自動畫線：" + (S.read.qauto ? "開" : "關"), onclick: function () { S.read.qauto = S.read.qauto ? 0 : 1; save(); viewPractice(key, n); } }));
@@ -1477,8 +1680,10 @@
     card.appendChild(h("div", { class: "btns" },
       h("button", { class: "btn soft", text: "上一題", disabled: n <= 1, onclick: function () { qHide(); vHide(); go("#/p/" + key + "/" + (n - 1)); } }),
       h("button", { class: "btn", text: last ? nx.label : "下一題", onclick: function () { qHide(); vHide(); if (last) { Object.keys(picked).forEach(function (x) { delete picked[x]; }); delete frozen[key]; if (key.charAt(0) !== "w") setPos("pr:" + key, { n: 1, done: true }); go(nx.href); } else go("#/p/" + key + "/" + (n + 1)); } })));
-    show(topbar(set.back, set.title), card);
+    app.classList.toggle("has-jc", !!jc);
+    show(topbar(set.back, set.title), jc ? h("div", { class: "jc-wrap" }, card, jBox) : card);
   }
+  var qj = {};
   // 線上作答做完後要去哪：節 → 下一節（最後一節 → 下一章第一節）；章 → 下一章；其他回原處
   function nextTarget(key, set) {
     var p = key.split(":"), res = { href: set.back, label: "完成" };
@@ -2140,13 +2345,30 @@
     });
   }
   function ttsChunks(t) {
+    // ks-v72：一句一讀，才能逐句標亮；太短的句子併到下一句，避免一直停頓
     var out = [], cur = "";
-    t.split(/(?<=[。！？；])/).forEach(function (x) { if ((cur + x).length > 90 && cur) { out.push(cur); cur = x; } else cur += x; });
+    t.split(/(?<=[。！？；])/).forEach(function (x) { cur += x; if (cur.length >= 12) { out.push(cur); cur = ""; } });
     if (cur) out.push(cur);
     return out;
   }
+  // 逐句標亮：用 CSS Custom Highlight，不動課文 DOM，畫線不受影響；瀏覽器不支援或對不上文字時只留整段標示
+  function ttsHi(el, text) {
+    if (!window.Highlight || !window.CSS || !CSS.highlights) return;
+    CSS.highlights.delete("tts-s");
+    if (!el || !text || el.tagName === "FIGURE") return;
+    var s = el.textContent, q = text.trim(), at = s.indexOf(q, TT.hiAt || 0); if (at < 0) at = s.indexOf(q); if (at < 0) return;
+    TT.hiAt = at + q.length;
+    var w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT), pos = 0, n, r = document.createRange(), st = false;
+    while ((n = w.nextNode())) {
+      var e = pos + n.length;
+      if (!st && at < e) { r.setStart(n, at - pos); st = true; }
+      if (st && TT.hiAt <= e) { r.setEnd(n, TT.hiAt - pos); CSS.highlights.set("tts-s", new Highlight(r)); return; }
+      pos = e;
+    }
+  }
   function ttsStop() {
     TT.on = false; TT.gen++; if (window.speechSynthesis) ttsCancel();
+    ttsHi(null); document.body.classList.remove("tts-live");
     [].forEach.call(document.querySelectorAll(".tts-on"), function (e) { e.classList.remove("tts-on"); });
     var b = document.getElementById("ttsbar"); if (b) b.remove();
     ttsPlace();
@@ -2169,12 +2391,13 @@
     if (i >= bl.length) { ttsStop(); toast("讀完了"); return; }
     TT.i = i; if (!auto) ttsCancel();
     [].forEach.call(art.querySelectorAll(".tts-on"), function (e) { e.classList.remove("tts-on"); });
-    bl[i].el.classList.add("tts-on");
+    bl[i].el.classList.add("tts-on"); TT.hiAt = 0; ttsHi(null);
     var sl = window.getSelection(); if (!sl || sl.isCollapsed) bl[i].el.scrollIntoView({ block: "center", behavior: "smooth" });   // 正在選字時不要把畫面捲走
     var ch = ttsChunks(bl[i].t), k = 0, vs = ttsVoices(), want = S.read.ttsv, voice = vs.filter(function (v) { return v.name === want; })[0] || vs[0];
     function next() {
       if (g !== TT.gen) return;
       if (k >= ch.length) return ttsSpeak(i + 1, true);
+      ttsHi(bl[i].el, ch[k]);
       say(ch[k++], 0);
     }
     function say(text, tries) {
@@ -2212,7 +2435,7 @@
   }
   function ttsStart(art, from) {
     if (!window.speechSynthesis) { toast("這個瀏覽器不支援朗讀"); return; }
-    ttsStop(); TT.on = true; TT.art = art; ttsBar(); ttsSpeak(from || 0);
+    ttsStop(); TT.on = true; TT.art = art; document.body.classList.add("tts-live"); ttsBar(); ttsSpeak(from || 0);
   }
   window.addEventListener("hashchange", function () { if (TT.on) ttsStop(); if (qsel && qsel.rd) qHide(); });
   window.addEventListener("resize", function () { if (TT.on) ttsPlace(); });
@@ -2346,7 +2569,8 @@
       h("div", { class: "eyebrow", text: s.name + "・第 " + (ci + 1) + " 章 " + c.title }),
       h("h1", { class: "rd-title", text: sec.title }),
       h("div", { class: "rd-meta" }, h("span", { class: "small", text: sec.src ? "整理自：" + sec.src : "" }),
-        h("span", { class: "chips sm" }, h("button", { class: "chip", text: "🔊 朗讀", onclick: function () { ttsStart(art, 0); } }), fsChip("小", 16), fsChip("中", 18), fsChip("大", 20))),
+        h("span", { class: "chips sm" }, h("button", { class: "chip", text: "🔊 朗讀", onclick: function () { ttsStart(art, 0); } }),
+          h("button", { class: "chip", "aria-pressed": String(!!R.fm), text: "專注", onclick: function (ev) { R.fm = R.fm ? 0 : 1; save(); document.body.classList.toggle("rd-fm", !!R.fm); ev.currentTarget.setAttribute("aria-pressed", String(!!R.fm)); } }), fsChip("小", 16), fsChip("中", 18), fsChip("大", 20))),
       h("div", { class: "small", text: "長按選字，就能畫重點或寫備註。點畫過的字可修改。🔊 朗讀：連點兩下某段可從那段開始讀。" }));
     paint();
     art.addEventListener("dblclick", function (ev) { if (ev.target.closest && ev.target.closest(".fig-match, .fig-sort, .fig-video")) return; var w = window.getSelection(); if (w) w.removeAllRanges(); var c = ev.target.closest ? ev.target.closest(".art > *") : null; if (!c) return; var i = [].indexOf.call(art.children, c); if (i >= 0) ttsStart(art, i); });
@@ -2380,7 +2604,9 @@
     });
     // 手機：頂端顯示目前讀到的小標
     var now = h("div", { class: "rd-now", hidden: true });
-    show(topbar("#/c/" + sid + "/" + cid, "第 " + (ci + 1) + " 章"), now, h("div", { class: "rd-wrap" }, h("aside", { class: "rd-side" }, toc), h("div", { class: "rd-main" }, head, art, mine, tail, nav)));
+    var leftBox = h("div", { class: "rd-left" });
+    document.body.classList.toggle("rd-fm", !!R.fm);
+    show(topbar("#/c/" + sid + "/" + cid, "第 " + (ci + 1) + " 章"), now, h("div", { class: "rd-wrap" }, h("aside", { class: "rd-side" }, toc, leftBox), h("div", { class: "rd-main" }, head, art, mine, tail, nav)));
     if (TT.on && TT.art && !TT.art.isConnected) { TT.art = art; ttsBar(); ttsSpeak(TT.i); }   // 同一節重畫（換字級、同步）後接著讀
 
     // ---------- 讀到哪：捲動時記下段落、目錄藍標跟著小標走 ----------
@@ -2435,6 +2661,18 @@
     }
     function onScroll() { spy(); clearTimeout(tmr); tmr = setTimeout(remember, 600); }
     window.addEventListener("scroll", onScroll, { passive: true });
+    // 小期限：這節還剩幾分鐘（剩餘字數÷200×實際讀速）、今天的章還差幾節（電腦版左欄）
+    function paintLeft() {
+      var ps = paras(sec), cur = TT.on && TT.art === art ? TT.i : topPara(), rest = 0, i;
+      for (i = cur; i < ps.length; i++) rest += ps[i].length;
+      var rows = [(S.pos[RK] || {}).fin && rest < 20 ? "這節已讀完" : "這節還剩 " + Math.max(1, Math.round(rest / 200 * paceOf(sid).v)) + " 分鐘"];
+      var pl = S.plan[ymd(new Date())], keys = pl && pl._ch ? pl._ch.split(",") : [], miss = 0;
+      keys.forEach(function (ky) { var a = ky.split(":"), c2 = chapter(a[0], a[1]); if (c2) c2.sections.forEach(function (x) { var r = S.pos["rd:" + a[0] + ":" + x.id]; if (!(r && r.fin)) miss++; }); });
+      if (keys.length) rows.push(miss ? "今天的章還差 " + miss + " 節" : "今天的章都讀完了");
+      var txt = rows.join("\n"); if (leftBox._t !== txt) { leftBox._t = txt; leftBox.textContent = txt; }
+    }
+    paintLeft();
+    PT.ctx = { sid: sid, cid: cid, xid: xid, sec: sec, art: art, top: topPara, paint: paintLeft };
     setLast("#/rd/" + sid + "/" + cid + "/" + xid, (ci + 1) + "-" + (si + 1) + " " + sec.title, s.name + "・課文");
     // 回到上次讀的段落（讀完的節從頭開始）
     if (keepY == null && saved && !saved.done && saved.p > 0 && art.children[saved.p]) {
@@ -2842,7 +3080,7 @@
     var cR = h("div", { class: "card" }, h("div", { class: "h2", text: "週報" }), h("pre", { class: "st-pre", text: wr }),
       h("button", { class: "btn soft", text: "複製這份摘要", onclick: function () { copyText(wr); } }));
 
-    show(topbar("#/", "今天"), h("h1", { class: "pg-t", text: "時間統計" }), over, h("div", { class: "small" }, "下面幾張圖依選的範圍計算："), seg, cA, cB, cC, cD, cG, cE, cF, cR);
+    show(topbar("#/", "今天"), h("h1", { class: "pg-t", text: "時間統計" }), over, ptStats(today, td), h("div", { class: "small" }, "下面幾張圖依選的範圍計算："), seg, cA, cB, cC, cD, cG, cE, cF, cR);
   }
 
   // ---------- 路由 ----------
@@ -3006,6 +3244,7 @@
     paceCache = {}; paceGen++;
     var p = (location.hash || "#/").replace(/^#\/?/, "").split("/").map(decodeURIComponent);
     window.scrollTo(0, 0); vHide();
+    document.body.classList.remove("rd-fm");
     app.className = "v-" + (p[0] || "home");
     var PAGES = { s: 1, c: 1, x: 1, p: 1, g: 1, r: 1, es: 1, rd: 1, rep: 1, sch: 1, stats: 1, print: 1, gm: 1, gmp: 1 };
     setTabbar(PAGES[p[0]] ? null : (p[0] === "subjects" || p[0] === "wrong" || p[0] === "db" || p[0] === "settings" ? p[0] : ""));
