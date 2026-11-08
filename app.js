@@ -3,7 +3,7 @@
   var KS = window.KS, LET = ["A", "B", "C", "D"];
   var app = document.getElementById("app");
   // 版本號：和 sw.js 的 VER 保持一致，改程式時兩邊一起加一
-  var APP_VER = "ks-v72", APP_DATE = "2026-11-08";
+  var APP_VER = "ks-v73", APP_DATE = "2026-11-08";
 
   // ---------- 儲存 ----------
   var KEY = "ks_v1";
@@ -834,7 +834,7 @@
       h("div", { class: "small", text: "聲音與強度" }),
       h("div", { class: "chips" }, chip(!R.ptMute, "有聲音", function () { R.ptMute = 0; }), chip(R.ptMute, "靜音", function () { R.ptMute = 1; }), chip(!R.ptSoft, "高壓", function () { R.ptSoft = 0; }), chip(R.ptSoft, "一般", function () { R.ptSoft = 1; })),
       h("div", { class: "h2", style: "margin-top:16px", text: "長選項判斷卡" }),
-      h("div", { class: "small", text: "電腦版遇到四個選項合計超過 100 字的題目，右側出現判斷卡，每個選項都標 ○、✕ 或 ? 才能作答。" }),
+      h("div", { class: "small", text: "電腦版遇到四個選項合計超過 100 字的題目，右側出現判斷卡，每個選項都標 ○、✕ 或 ?（這句話對不對）才能作答；已排除的選項不必再標。" }),
       h("div", { class: "chips" }, chip(!R.qjOff, "開", function () { R.qjOff = 0; }), chip(R.qjOff, "關", function () { R.qjOff = 1; })),
       h("div", { class: "h2", style: "margin-top:16px", text: "時間統計的空檔" }),
       h("div", { class: "chips" }, chip(!R.gapOff, "顯示", function () { R.gapOff = 0; }), chip(R.gapOff, "不顯示", function () { R.gapOff = 1; })));
@@ -1631,8 +1631,9 @@
     PT.q = pk == null ? { k: k, lim: q.g ? 24e4 : 12e4 } : null;
     // 長選項判斷卡：電腦版、四個選項合計超過 100 字才出現，每項都判斷完才能作答
     var jc = pk == null && !S.read.qjOff && q.o.join("").length > 100 && window.matchMedia("(min-width: 900px)").matches, jm = qj[k] = qj[k] || {};
-    function jVal(i) { return vis && qxOf(k).indexOf(i) >= 0 ? "x" : jm[i]; }
-    function jAll() { return q.o.every(function (_, i) { return !!jVal(i); }); }
+    // 卡上的 ○✕? 是「這句話對不對」，選項的 ✕ 是「這項不選」，兩者分開（「選錯誤的」題目，對的句子要標 ○ 再排除）。已排除的選項視同看過，不必再標
+    function jOut(i) { return vis && qxOf(k).indexOf(i) >= 0; }
+    function jAll() { return q.o.every(function (_, i) { return !!jm[i] || jOut(i); }); }
     var opts = h("div", { class: "opts" }), jBox = null;
     q.o.forEach(function (_, i) {
       var cls = pk == null ? "" : ok(q, i) ? "right" : i === pk ? "wrong" : "dim";
@@ -1643,16 +1644,13 @@
     });
     if (jc) {
       var jSet = function (i, v) {
-        var cur = jVal(i), inX = qxOf(k).indexOf(i) >= 0;
-        if (cur === v) { if (v === "x") { toggleX(k, i); } delete jm[i]; }
-        else if (v === "x") { if (!inX) toggleX(k, i); qshow[k] = true; delete jm[i]; }
-        else { if (inX) toggleX(k, i); jm[i] = v; }
+        if (jm[i] === v) delete jm[i]; else jm[i] = v;
         viewPractice(key, n);
       };
       jBox = h("aside", { class: "jcard" }, h("div", { class: "jc-t", text: "判斷卡" }),
         q.o.map(function (_, i) {
-          var v = jVal(i);
-          return h("div", { class: "jc-row" }, h("span", { class: "jc-l", text: LET[i] }), [["o", "○"], ["x", "✕"], ["q", "?"]].map(function (m) {
+          var v = jm[i];
+          return h("div", { class: "jc-row" + (jOut(i) ? " out" : "") }, h("span", { class: "jc-l", text: LET[i] }), [["o", "○"], ["x", "✕"], ["q", "?"]].map(function (m) {
             return h("button", { class: "jc-b" + (v === m[0] ? " on " + m[0] : ""), "aria-label": LET[i] + " 標記 " + m[1], "aria-pressed": String(v === m[0]), text: m[1], onclick: function () { jSet(i, m[0]); } });
           }));
         }),

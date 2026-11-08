@@ -726,7 +726,9 @@ body.tts-pad #app { padding-bottom: 84px; }
   #app.v-p.has-jc { max-width: 1000px; }
   .jc-wrap { display: grid; grid-template-columns: minmax(0, 1fr) 190px; gap: 16px; align-items: start; }
   .jcard { position: sticky; top: 16px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px; }
+  body.run-wide .jcard { top: calc(64px + env(safe-area-inset-top, 0px)); }   /* 避開右上角的計時列 */
 }
+.jc-row.out .jc-l { text-decoration: line-through; opacity: .5; }
 .jc-t { font-weight: 700; margin-bottom: 8px; }
 .jc-row { display: grid; grid-template-columns: 20px repeat(3, 1fr); gap: 5px; align-items: center; margin-bottom: 7px; }
 .jc-l { font-weight: 700; color: var(--ink2); }
