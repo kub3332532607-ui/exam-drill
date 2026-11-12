@@ -3,7 +3,7 @@
   var KS = window.KS, LET = ["A", "B", "C", "D"];
   var app = document.getElementById("app");
   // 版本號：和 sw.js 的 VER 保持一致，改程式時兩邊一起加一
-  var APP_VER = "ks-v74", APP_DATE = "2026-11-11";
+  var APP_VER = "ks-v75", APP_DATE = "2026-11-12";
 
   // ---------- 儲存 ----------
   var KEY = "ks_v1";
@@ -2872,6 +2872,34 @@
     });
     var w = []; for (var i = 6; i >= 0; i--) { var x = new Date(); x.setDate(x.getDate() - i); var ds = ymd(x); w.push(md(ds) + " " + dayMin(ds) + "分" + ((S.plan[ds] || {})._ok ? "✓" : "")); }
     lines.push("", "最近 7 天：" + w.join("、"));
+    // 近 7 天明細（ks-v75）：逐日分科的讀／題分鐘、7 天合計、做題數與答對率、讀書時段。只讀 S.tl 與 S.stats。
+    var KN = { read: "讀", drill: "題", write: "寫作", voc: "單字", free: "自習", oth: "其他" }, KO = ["read", "drill", "write", "voc", "free", "oth"], WD = "日一二三四五六";
+    var dl = [], dset = {}, by = {}, tot = {}, hr = [], order = KS.subjects.map(function (s) { return s.id; }).concat([""]);
+    for (i = 6; i >= 0; i--) { x = new Date(); x.setDate(x.getDate() - i); dl.push(ymd(x)); dset[ymd(x)] = 1; }
+    for (i = 0; i < 24; i++) hr.push(0);
+    Object.keys(S.tl).forEach(function (id) {
+      var t = S.tl[id]; if (t.del || !dset[t.d] || !(t.m > 0)) return;
+      var k = t.kd || tlKind(t.k), s = subj(t.sid) ? t.sid : "", a = by[t.d] = by[t.d] || {}, b = a[s] = a[s] || {}, c = tot[s] = tot[s] || {};
+      b[k] = (b[k] || 0) + t.m; c[k] = (c[k] || 0) + t.m;
+      if (t.hh) Object.keys(t.hh).forEach(function (h2) { hr[+h2] += t.hh[h2]; });
+      else if (t.ts && id.indexOf("_") < 0) { var st = t.ts - t.m * 6e4; for (var q = 0; q < t.m; q++) hr[new Date(st + q * 6e4).getHours()]++; }   // 同一段計時拆出的紀錄（id 帶 _）已算在第一筆的 hh 裡
+    });
+    function kinds(o) { return KO.filter(function (k) { return o[k]; }).map(function (k) { return KN[k] + o[k]; }).join(" "); }
+    function bySub(a) { return order.filter(function (s) { return a[s]; }).map(function (s) { return (s ? subj(s).name + " " : "") + kinds(a[s]); }).join("｜"); }
+    lines.push("", "最近 7 天明細（分鐘／當日目標；只算有計時的）：");
+    dl.forEach(function (d) { var p = d.split("-"); lines.push(md(d) + " " + WD.charAt(new Date(+p[0], +p[1] - 1, +p[2]).getDay()) + " " + dayMin(d) + "/" + dayGoal(d) + (by[d] ? "｜" + bySub(by[d]) : "")); });
+    if (Object.keys(tot).length) lines.push("7 天合計：" + bySub(tot));
+    var exS = {}, qs = {};
+    KS.exams.forEach(function (e) { exS[e.id] = e.subject; });
+    Object.keys(S.stats).forEach(function (k) {
+      var s = S.stats[k], sid = exS[k.slice(0, k.lastIndexOf("#"))];
+      if (!sid || !(s.c || s.w) || !s.ts || !dset[ymd(new Date(s.ts))]) return;
+      var o = qs[sid] = qs[sid] || { n: 0, c: 0 }; o.n++; if (s.last === "c") o.c++;
+    });
+    var ql = order.filter(function (s) { return qs[s]; }).map(function (s) { return subj(s).name + " " + qs[s].n + " 題 " + Math.round(qs[s].c / qs[s].n * 100) + "%"; });
+    if (ql.length) lines.push("7 天做題（最後一次作答落在這 7 天的題數與答對率）：" + ql.join("｜"));
+    var hs = []; hr.forEach(function (m, hI) { if (m >= 10) hs.push(hI + "時 " + m); });
+    if (hs.length) lines.push("讀書時段（7 天各小時分鐘）：" + hs.join("、"));
     return lines.join("\n");
   }
   function viewSchedule() {
