@@ -3,7 +3,7 @@
   var KS = window.KS, LET = ["A", "B", "C", "D"];
   var app = document.getElementById("app");
   // 版本號：和 sw.js 的 VER 保持一致，改程式時兩邊一起加一
-  var APP_VER = "ks-v75", APP_DATE = "2026-11-12";
+  var APP_VER = "ks-v76", APP_DATE = "2026-11-12";
 
   // ---------- 儲存 ----------
   var KEY = "ks_v1";
@@ -151,14 +151,14 @@
     sid = p[1];
     KS.exams.filter(function (e) { return e.subject === sid; }).forEach(function (e) {
       e.questions.forEach(function (q, i) {
-        var hit = p[0] === "t" ? q.ch === p[2] && inStage(e, q, +p[3]) && (!p[4] || q.sec === p[4]) : p[0] === "c" ? (p[2] === "_none" ? !q.ch : q.ch === p[2] && (!p[3] || q.sec === p[3])) : isWrong(stat(e, i + 1));
+        var hit = p[0] === "t" ? q.ch === p[2] && inStage(e, q, +p[3]) && (!p[4] || q.sec === p[4]) : p[0] === "c" ? (p[2] === "_none" ? !q.ch : q.ch === p[2] && (!p[3] || q.sec === p[3])) : isWrong(stat(e, i + 1)) && (!p[2] || (p[2] === "_none" ? !q.ch : q.ch === p[2]));
         if (hit) items.push({ e: e, n: i + 1, q: q });
       });
     });
     if (p[0] === "c" && p[3]) { var sc = section(sid, p[2], p[3]); if (!sc) return null; title = sc.title; back = "#/rd/" + sid + "/" + p[2] + "/" + p[3]; }
     else if (p[0] === "t") { title = (p[4] ? section(sid, p[2], p[4]).title : chapter(sid, p[2]).title) + (p[3] === "1" ? "・重點題" : "・題目"); back = p[4] ? "#/rd/" + sid + "/" + p[2] + "/" + p[4] : "#/"; }
     else if (p[0] === "c") { var c = chapter(sid, p[2]); title = c ? c.title : "尚未分章的題目"; back = "#/c/" + sid + "/" + p[2]; }
-    else { title = subj(sid).name + " 錯題"; back = "#/s/" + sid + "/wr"; }
+    else { var wc = p[2] && p[2] !== "_none" ? chapter(sid, p[2]) : null; title = subj(sid).name + (wc ? "・" + wc.title : p[2] ? "・未分章" : "") + " 錯題"; back = "#/s/" + sid + "/wr"; }
     return { key: key, title: title, sid: sid, items: items, back: back };
   }
   // 作答中把題組固定住，避免錯題答對後順序跑掉
@@ -1177,6 +1177,7 @@
   }
 
   // ---------- 科目 ----------
+  var wrCh = {};
   function viewSubject(sid, tab) {
     var s = subj(sid), chs = chapters(sid), review = !s.noReview && chs.length;
     tab = tab || (review ? "ch" : "ex");
@@ -1210,10 +1211,20 @@
           ct.wrong ? h("span", { class: "pill red", text: "錯 " + ct.wrong }) : h("span", { class: "go", text: "›" })));
       });
     } else {
-      var w = getSet("w:" + sid);
-      if (!w.items.length) body.appendChild(h("div", { class: "empty", text: "目前沒有錯題。" }));
+      var wAll = getSet("w:" + sid), wcur = wrCh[sid] || "", w;
+      if (wcur) { w = getSet("w:" + sid + ":" + wcur); if (!w.items.length) { wcur = wrCh[sid] = ""; w = wAll; } } else w = wAll;
+      if (!wAll.items.length) body.appendChild(h("div", { class: "empty", text: "目前沒有錯題。" }));
       else {
-        body.appendChild(h("div", { class: "btns" }, h("a", { class: "btn", href: "#/p/w:" + sid + "/1", text: "重做 " + w.items.length + " 題" }), h("a", { class: "btn soft", href: "#/print/w:" + sid, text: "列印錯題" })));
+        var wcs = chs.map(function (c, i) { return { id: c.id, lb: "第 " + (i + 1) + " 章", t: c.title }; }).concat([{ id: "_none", lb: "未分章", t: "" }]);
+        var chips = h("div", { class: "chips", style: "margin-bottom:8px" }, h("button", { class: "chip", "aria-pressed": String(!wcur), text: "全部 " + wAll.items.length, onclick: function () { wrCh[sid] = ""; route(); } }));
+        wcs.forEach(function (c) {
+          var n = getSet("w:" + sid + ":" + c.id).items.length;
+          if (n) chips.appendChild(h("button", { class: "chip", "aria-pressed": String(wcur === c.id), text: c.lb + " " + n, title: c.t, onclick: function () { wrCh[sid] = c.id; route(); } }));
+        });
+        body.appendChild(chips);
+        if (wcur) { var wcc = wcs.filter(function (c) { return c.id === wcur; })[0]; body.appendChild(h("div", { class: "small", text: wcc && wcc.t ? wcc.lb + "：" + wcc.t : "尚未分章的錯題" })); }
+        var wkey = "w:" + sid + (wcur ? ":" + wcur : "");
+        body.appendChild(h("div", { class: "btns" }, h("a", { class: "btn", href: "#/p/" + wkey + "/1", text: "重做 " + w.items.length + " 題" }), h("a", { class: "btn soft", href: "#/print/" + wkey, text: "列印錯題" })));
         w.items.forEach(function (it) { body.appendChild(wrongBlock(it, undefined)); });
       }
     }
@@ -1775,15 +1786,33 @@
       grid.appendChild(row);
     });
     upd();
+    // skip：true＝只對已輸入的題（空白題不記錄、不算分）；false＝空白當錯
+    function submit(skip) {
+      var okc = 0, na = 0;
+      set.items.forEach(function (it, idx) {
+        var a = ans[idx + 1];
+        if (a == null && skip) { na++; return; }
+        var r = a != null && ok(it.q, a); record(it.e, it.n, r); if (r) okc++;
+      });
+      var tot = set.items.length - na;
+      if (!tot) { toast("還沒輸入任何答案"); return; }
+      S.attempts.push({ set: key, ts: Date.now(), correct: okc, total: tot, score: set.perScore ? okc * set.perScore : Math.round(okc / tot * 100), ans: JSON.parse(JSON.stringify(ans)), items: set.items.map(function (it) { return qid(it.e, it.n); }), skip: skip && na ? 1 : undefined });
+      save(); delete drafts[key]; delete frozen[key]; go("#/r/" + key);
+    }
+    var btns = h("div", { class: "btns" });
+    function askBtns() {
+      var blank = set.items.length - Object.keys(ans).length;
+      if (!blank) return submit(false);
+      btns.replaceChildren(h("div", { class: "small", style: "width:100%", text: "有 " + blank + " 題沒輸入。只對已輸入的：空白題不記錄、不算分，也不會進錯題本。空白當錯：像正式考試，沒寫就是錯。" }),
+        h("button", { class: "btn", text: "只對已輸入的", onclick: function () { submit(true); } }),
+        h("button", { class: "btn soft", text: "空白當錯", onclick: function () { submit(false); } }),
+        h("button", { class: "btn soft", text: "取消", onclick: function () { btns.replaceChildren(go1); } }));
+    }
+    var go1 = h("button", { class: "btn", text: "對答案", onclick: askBtns });
+    btns.appendChild(go1);
     show(topbar(set.back, set.title), h("div", { class: "card" },
-      h("div", { class: "h2", text: "輸入你在紙上寫的答案" }), h("div", { class: "small", text: "題號和列印出來的順序一樣。沒寫的留空。" }),
-      h("div", { class: "sticky" }, cnt, h("span", { class: "small", text: set.title })), grid,
-      h("div", { class: "btns" }, h("button", { class: "btn", text: "對答案", onclick: function () {
-        var okc = 0;
-        set.items.forEach(function (it, idx) { var a = ans[idx + 1], r = a != null && ok(it.q, a); record(it.e, it.n, r); if (r) okc++; });
-        S.attempts.push({ set: key, ts: Date.now(), correct: okc, total: set.items.length, score: set.perScore ? okc * set.perScore : Math.round(okc / set.items.length * 100), ans: JSON.parse(JSON.stringify(ans)), items: set.items.map(function (it) { return qid(it.e, it.n); }) });
-        save(); delete drafts[key]; delete frozen[key]; go("#/r/" + key);
-      } }))));
+      h("div", { class: "h2", text: "輸入你在紙上寫的答案" }), h("div", { class: "small", text: "題號和列印出來的順序一樣。沒寫的留空，對答案時可選要不要算。" }),
+      h("div", { class: "sticky" }, cnt, h("span", { class: "small", text: set.title })), grid, btns));
   }
   function viewResult(key) {
     var set = getSet(key), a = lastAttempt(key); if (!set || !a) return go("#/");
@@ -1791,7 +1820,8 @@
       h("div", { class: "score" }, String(a.score), h("small", { text: " 分　答對 " + a.correct + " / " + a.total })));
     var wl = h("div", { class: "card" });
     var its = a.items ? itemsFromIds(a.items) : set.items;
-    var miss = its.map(function (it, i) { return { it: it, mine: a.ans[i + 1], n: i + 1 }; }).filter(function (x) { return x.mine == null || !ok(x.it.q, x.mine); });
+    var miss = its.map(function (it, i) { return { it: it, mine: a.ans[i + 1], n: i + 1 }; }).filter(function (x) { return x.mine == null ? !a.skip : !ok(x.it.q, x.mine); });
+    if (a.skip) card.appendChild(h("div", { class: "small", text: "只對了有輸入的 " + a.total + " 題，其餘 " + (its.length - a.total) + " 題沒輸入，不算分也沒記錄。" }));
     wl.appendChild(h("div", { class: "h2", text: miss.length ? "要訂正的題目（" + miss.length + "）" : "全對，太好了" }));
     miss.forEach(function (x) { wl.appendChild(wrongBlock(x.it, x.mine, x.n)); });
     show(topbar(set.back, set.title), card, wl);
