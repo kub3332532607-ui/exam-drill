@@ -3,7 +3,7 @@
   var KS = window.KS, LET = ["A", "B", "C", "D"];
   var app = document.getElementById("app");
   // 版本號：和 sw.js 的 VER 保持一致，改程式時兩邊一起加一
-  var APP_VER = "ks-v76", APP_DATE = "2026-11-12";
+  var APP_VER = "ks-v77", APP_DATE = "2026-11-13";
 
   // ---------- 儲存 ----------
   var KEY = "ks_v1";
@@ -292,7 +292,11 @@
     var r = att >= 30 ? Math.max(0.1, Math.min(0.6, wr / att)) : 0.3, t = N >= 20 && M > 0 ? Math.max(0.5, Math.min(4, M / N)) : 1 + r * 2;
     return (qsCache[sid] = { r: r, t: t, w: 2 * t / (1 + 2 * r), real: N >= 20 && M > 0, att: att });
   }
-  function chEst(ci) { return ci.qn ? "讀 " + (ci.done ? 0 : ci.rm) + "＋題目 " + ci.qn + " 題約 " + ci.qm + " 分（含錯題訂正約 " + ci.wm + " 分）" : "讀 " + (ci.done ? 0 : ci.rm) + " 分（題目已做完）"; }
+  // ks-v77：章任務副標只留要做什麼（總分鐘看右邊按鈕）。讀完的章不顯示讀的部分，題目做完不顯示題目
+  function chEst(ci) {
+    var rd = ci.done ? "" : (ci.n ? "剩 " : "讀 ") + ci.rm + " 分", q = ci.qn ? "題目 " + ci.qn + " 題 " + ci.qm + " 分" : "";
+    return rd && q ? rd + "＋" + q : rd || q || "課文與題目都完成了";
+  }
   // 章任務的做題時間（計時中停在做題畫面，記成 chq:）
   function chqTxt(d, key) { var q = taskMin(d, "chq:" + key); return q ? "・今天做題 " + q + " 分" : ""; }
   function qMinAll(key) { var m = 0; Object.keys(S.tl).forEach(function (i) { var x = S.tl[i]; if (!x.del && x.k === "chq:" + key) m += x.m; }); return m; }
@@ -446,7 +450,7 @@
         if (!(ci.d === today || (pl0[k] && !inBx))) return;
         if (ci.done && !pl0[k] && !(pl0._nt && pl0._nt[k])) { pl0[k] = Date.now(); pl0._t = Date.now(); save(); }
         todays.push(ci);
-        add(k, subj(ci.sid).name + "：第 " + ci.no + " 章" + (ci.shift ? "（原訂 " + md(ci.od) + "）" : ""), ci.c.title + "・已讀 " + ci.n + "/" + ci.tot + " 節・" + (ci.done ? "約 " + ci.full + " 分" : (ci.n ? "剩約 " : "約 ") + ci.min + " 分：" + chEst(ci)) + (ci.pace.n || ci.qs.real ? "（依你的速度）" : "") + chqTxt(today, ci.key), ci.href, ci.min, 0, ci.sid);
+        add(k, subj(ci.sid).name + "：第 " + ci.no + " 章" + (ci.shift ? "（原訂 " + md(ci.od) + "）" : ""), ci.c.title + (ci.n && !ci.done ? "・已讀 " + ci.n + "/" + ci.tot + " 節" : "") + "・" + chEst(ci) + chqTxt(today, ci.key), ci.href, ci.min, 0, ci.sid);
       });
       // 今天的章都讀完了：往前拉下一章，有力氣再讀（讀完就不會再出現在後面的日子）
       var allDone = todays.length && todays.every(function (ci) { return ci.done; });
