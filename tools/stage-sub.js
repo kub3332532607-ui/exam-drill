@@ -15,6 +15,9 @@ const sim = (a, b) => { let n = 0; a.forEach((x) => { if (b.has(x)) n++; }); ret
 const year = (e) => +(e.short.match(/^\d+/) || [0])[0];
 const tier = (e) => e.id.indexOf("bank") === 0 ? 9 : /地特四等|普考/.test(e.short) ? 0 : /四等/.test(e.short) ? 1 : /三等|高考/.test(e.short) ? 2 : 3;
 const rank = (e) => tier(e) * 1000 - year(e);
+// 賴小節等書上的章末題（id 以 lai 開頭）：依題末考年標籤【102地四】排序，普考、地特四等同第一級。
+const tagOf = (q) => (String(q.q || "").match(/【(\d*)(地四|普)】$/) || null);
+const rankQ = (o) => { if (o.e.id.indexOf("lai") !== 0) return rank(o.e); const m = tagOf(o.q); return m ? -(+m[1] || 0) : 3000; };
 const load = (src) => { const D = []; vm.runInNewContext(src, { KS: { add: (o) => { if (o.exams) D.push(...o.exams); } } }); return D; };
 const rows = [];
 subs.forEach((sid) => {
@@ -23,7 +26,7 @@ subs.forEach((sid) => {
   exams.forEach((e) => e.questions.forEach((q, i) => { if (q.sec && !isMock(e) && q.q) (bySec[q.sec] = bySec[q.sec] || []).push({ e, i, q, g: grams(q.q + (q.o || []).join("")) }); }));
   let tot = 0, nsec = 0; const short = [];
   Object.keys(bySec).forEach((sec) => {
-    const c = bySec[sec].sort((a, b) => rank(a.e) - rank(b.e) || a.e.id.localeCompare(b.e.id) || a.i - b.i), got = [];
+    const c = bySec[sec].sort((a, b) => rankQ(a) - rankQ(b) || a.e.id.localeCompare(b.e.id) || a.i - b.i), got = [];
     const uniq = []; c.forEach((o) => { if (!uniq.some((u) => sim(u.g, o.g) > 0.6)) uniq.push(o); });
     const want = uniq.length < LO ? uniq.length : Math.min(HI, Math.max(LO, Math.round(uniq.length * 0.35)));
     for (const o of uniq) { if (got.length >= want) break; got.push(o); }
