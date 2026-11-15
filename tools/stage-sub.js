@@ -1,12 +1,13 @@
-// 各科重點題（每節 10–15 題，仿憲法階段一）：
+// 各科重點題（每節 5–8 題，仿憲法階段一）：
 //   node tools/stage-sub.js adm alaw pol jur        只輸出 tools/重點題選題.tsv 與統計
 //   node tools/stage-sub.js --write adm alaw ...    寫進 data/<科目>.js（"st":1）
 // 規則：113、114 地特四等留給模擬考不選；同等級、新的優先（地特四等、普考 → 其他四等 → 三等 → 其他）；
-// 和本節已選題太像（雙字相似度 > 0.6）的跳過。每節取 round(題數×0.35)，限 10–15；不到 10 題就全收。
+// 和本節已選題太像（雙字相似度 > 0.6）的跳過。每節取 round(題數×0.35)，限 LO–HI；不到 LO 題就全收。
 // 選題不用亂數，同樣的資料挑出同樣的題。已有 st 的題會被重設成本次結果。
 const fs = require("fs"), vm = require("vm");
 const FILES = { adm: "data/adm.js", alaw: "data/alaw.js", pol: "data/pol.js", jur: "data/jur.js" }, OUT = "tools/重點題選題.tsv";
 const args = process.argv.slice(2), write = args.includes("--write"), subs = args.filter((a) => FILES[a]);
+const LO = 5, HI = 8;   // 每節題數（2026-11-15 由 10–15 改成 5–8）
 const isMock = (e) => /^11[34] 地特四等/.test(e.short);
 const norm = (s) => String(s || "").replace(/[\s，。、；：？！「」（）()『』,.;:?!]/g, "");
 const grams = (s) => { const a = new Set(), t = norm(s); for (let i = 0; i < t.length - 1; i++) a.add(t.slice(i, i + 2)); return a; };
@@ -24,12 +25,12 @@ subs.forEach((sid) => {
   Object.keys(bySec).forEach((sec) => {
     const c = bySec[sec].sort((a, b) => rank(a.e) - rank(b.e) || a.e.id.localeCompare(b.e.id) || a.i - b.i), got = [];
     const uniq = []; c.forEach((o) => { if (!uniq.some((u) => sim(u.g, o.g) > 0.6)) uniq.push(o); });
-    const want = uniq.length < 10 ? uniq.length : Math.min(15, Math.max(10, Math.round(uniq.length * 0.35)));
+    const want = uniq.length < LO ? uniq.length : Math.min(HI, Math.max(LO, Math.round(uniq.length * 0.35)));
     for (const o of uniq) { if (got.length >= want) break; got.push(o); }
     got.forEach((o) => { pick[o.e.id + "#" + o.i] = 1; rows.push([sid, o.q.ch, sec, o.e.short, o.q.no, o.q.q.replace(/\s+/g, " ")]); });
-    tot += got.length; nsec++; if (got.length < 10) short.push(sec + "=" + got.length);
+    tot += got.length; nsec++; if (got.length < LO) short.push(sec + "=" + got.length);
   });
-  console.log(sid, "重點題", tot, "／節", nsec, "；不到 10 題的節", short.length, short.join(" "));
+  console.log(sid, "重點題", tot, "／節", nsec, "；不到 " + LO + " 題的節", short.length, short.join(" "));
   if (!write) return;
   let out = src, miss = 0;
   exams.forEach((e) => {
