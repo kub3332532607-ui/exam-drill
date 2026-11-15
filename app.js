@@ -3,7 +3,7 @@
   var KS = window.KS, LET = ["A", "B", "C", "D"];
   var app = document.getElementById("app");
   // 版本號：和 sw.js 的 VER 保持一致，改程式時兩邊一起加一
-  var APP_VER = "ks-v78", APP_DATE = "2026-11-15";
+  var APP_VER = "ks-v79", APP_DATE = "2026-11-15";
 
   // ---------- 儲存 ----------
   var KEY = "ks_v1";
@@ -413,27 +413,33 @@
       var key = "c:" + sid + ":" + ns.cid + ":" + ns.x.id, st = getSet(key);
       if (!hasStage(sid)) add("qs", s.name + "：本節題目", st && st.items.length ? "共 " + st.items.length + " 題，做完看解析" : "本節沒有題目，改做考卷 15 題", st && st.items.length ? "#/p/" + key + "/1" : "#/s/" + sid + "/ex", qmin, 0, sid);
     }
-    // 分階段的科目：依節序出還沒做完的題，合計最多 max 題。階段一只出讀完的節；階段二不看讀到哪
+    // 分階段的科目：依節序出還沒做完的題，每科合併成一行，合計最多 max 題（ks-v79 前每節一行）。階段一只出讀完的節；階段二不看讀到哪
+    // 點 ▶ 從最前面還沒做完的節開始；ck 記這幾節的題組，做到 goal 題才算完成
     function stageTasks(st, max) {
       KS.subjects.forEach(function (s) {
         if (!hasStage(s.id)) return;
-        var rem = max;
+        var rem = max, cks = [], goal = 0, left = 0, nsec = 0, first = null;
         chapters(s.id).forEach(function (c, i) {
           var chDone = st === 1 && chInfo(s.id + ":" + c.id).done;
           (c.sections || []).forEach(function (x, j) {
-            if (!rem) return;
             var rd = S.pos["rd:" + s.id + ":" + x.id];
             if (st === 1 && !chDone && !(rd && rd.fin)) return;
-            var key = "t:" + s.id + ":" + c.id + ":" + st + ":" + x.id, set = getSet(key), tot = set.items.length, dn = counts(set.items).done, nx = Math.min(rem, tot - dn);
-            if (nx <= 0) return;
-            var at = 0; set.items.some(function (it, k) { at = k + 1; return !stat(it.e, it.n); });
-            add("st" + st + ":" + s.id + ":" + x.id, s.name + " " + (i + 1) + "-" + (j + 1) + (st === 1 ? " 重點題 " : " 題目 ") + nx + " 題", x.title + "・本節 " + tot + " 題（已做 " + dn + "）", "#/p/" + key + "/" + at, Math.max(5, Math.round(nx * 1.2 / 5) * 5), 1, s.id);
-            T[T.length - 1].ck = key; T[T.length - 1].goal = dn + nx;
-            rem -= nx;
+            var key = "t:" + s.id + ":" + c.id + ":" + st + ":" + x.id, set = getSet(key), tot = set.items.length, dn = counts(set.items).done;
+            if (tot - dn <= 0) return;
+            left += tot - dn; nsec++;
+            if (!rem) return;
+            var nx = Math.min(rem, tot - dn);
+            if (!first) { var at = 0; set.items.some(function (it, k) { at = k + 1; return !stat(it.e, it.n); }); first = { href: "#/p/" + key + "/" + at, lab: (i + 1) + "-" + (j + 1) + " " + x.title }; }
+            cks.push(key); goal += dn + nx; rem -= nx;
           });
         });
+        if (!first) return;
+        var n = max - rem;
+        add("st" + st + ":" + s.id, s.name + "：" + (st === 1 ? "已讀章節重點題 " : "題目 ") + n + " 題", "從 " + first.lab + " 開始・已讀章節還有 " + nsec + " 節 " + left + " 題沒做", first.href, Math.max(5, Math.round(n * 1.2 / 5) * 5), 1, s.id);
+        T[T.length - 1].ck = cks; T[T.length - 1].goal = goal;
       });
     }
+    function ckDone(ck) { return [].concat(ck).reduce(function (a, k) { var xs = getSet(k); return a + (xs ? counts(xs.items).done : 0); }, 0); }
     var phase = today < "2026-11-23" ? "A" : today < "2026-12-02" ? "B" : today < "2026-12-05" ? "C" : today <= EXAM_END ? "X" : daysTo("2027-04-01") > 0 ? 2 : 3;
     if (phase === "A") {
       // 地特前補強：保底＝單字＋今天排的章（讀完整章才算完成，含落後章）＋輪流的考題（一三五英文考卷，二四六日國文測驗）＋週三作文大綱；週日緩衝日另補落後＋錯題；加碼＝刷題、其他天的英文考卷、週六作文
@@ -471,7 +477,7 @@
         if (tot && today25) { T[T.length - 1].ck = "c:" + tch.sid + ":" + tch.c.id; T[T.length - 1].goal = dn + today25; }
         else if (!tot) add("q2:" + tch.key, "今天章節的題目", "本章沒有對應題目，改做考卷 15 題", "#/s/" + tch.sid + "/ex", 20, 1, tch.sid);
       }
-      stageTasks(1, 25);
+      stageTasks(1, 15);
       // 考題輪流進保底：寫滿題數自動打勾（手動取消過就不再勾）
       var engDay = dow % 2 === 1, engN = doneToday("eng", today), chnN = doneToday("chn", today), pl1 = S.plan[today] = S.plan[today] || {};
       [["eng", engN, 20], ["chn", chnN, 15]].forEach(function (a) { if (a[1] >= a[2] && !pl1[a[0]] && !(pl1._u && pl1._u[a[0]])) { pl1[a[0]] = Date.now(); pl1._t = Date.now(); save(); } });
@@ -487,7 +493,7 @@
       vocab0(20);
       add("mk", m[1] + " 模擬考", m[2] + "，計時寫完再對答案", "#/s/" + m[0] + "/ex", m[3], 0, m[0]);
       add("rv", "檢討今天的錯題", "看解析、寫訂正", "#/s/" + m[0] + "/wr", 40, 0, m[0]);
-      stageTasks(1, 25);
+      stageTasks(1, 15);
       add("eng", "英文 10 題", "保持手感", "#/s/eng/ex", 20, 1, "eng");
       if (wb.tot) add("wr", "其他科錯題", "共 " + wb.tot + " 題", "#/s/" + top + "/wr", 30, 1, top);
       schedList(today).forEach(function (ci) { if (!ci.done && ci.d <= today) add("ch:" + ci.key, "補讀：" + subj(ci.sid).name + "第 " + ci.no + " 章", ci.c.title + "・已讀 " + ci.n + "/" + ci.tot + " 節", ci.href, ci.min, 1, ci.sid); });
@@ -510,12 +516,14 @@
     }
     // 加碼當天第一次出現就記在 plan[今天]._bx；做完（算不出來了）也留在清單上打勾，新的接在後面
     var pl9 = S.plan[today] = S.plan[today] || {}, bx = pl9._bx || {}, has = {}, chg = false, extra9 = [];
+    // ks-v79：重點題改成每科一行（id st1:科目），舊版每節一行（st1:科目:節）沒打勾的拿掉
+    Object.keys(bx).forEach(function (id) { if (/^st\d:[^:]+:/.test(id) && !pl9[id]) { delete bx[id]; chg = true; } });
     T.forEach(function (t) { has[t.id] = t; if (t.tier && !bx[t.id]) { bx[t.id] = { t: t.t, sub: t.sub, href: t.href, min: t.min, sid: t.sid, ext: t.ext, ck: t.ck, goal: t.goal }; chg = true; } });
     Object.keys(bx).forEach(function (id) {
       if (has[id]) { if (has[id].tier) extra9.push(has[id]); return; }
       var x = bx[id];
       // 題目類的加碼（記了題組 ck 與目標題數 goal）：要真的做到目標題數才算完成；只是換章而消失的不自動打勾
-      if (x.ck) { var xs = getSet(x.ck), xd = xs ? counts(xs.items).done : 0; if (xd < x.goal) { extra9.push({ id: id, t: x.t, sub: x.sub + "・今天還差 " + (x.goal - xd) + " 題", href: x.href, min: x.min, tier: 1, sid: x.sid, ext: x.ext }); return; } }
+      if (x.ck) { var xd = ckDone(x.ck); if (xd < x.goal) { extra9.push({ id: id, t: x.t, sub: x.sub + "・今天還差 " + (x.goal - xd) + " 題", href: x.href, min: x.min, tier: 1, sid: x.sid, ext: x.ext }); return; } }
       if (!pl9[id] && !(pl9._u && pl9._u[id])) { pl9[id] = Date.now(); pl9._t = Date.now(); chg = true; }
       extra9.push({ id: id, t: x.t, sub: pl9[id] ? "今天已完成" : x.sub, href: x.href, min: x.min, tier: 1, sid: x.sid, ext: x.ext });
     });
