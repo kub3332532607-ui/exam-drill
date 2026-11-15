@@ -3,7 +3,7 @@
   var KS = window.KS, LET = ["A", "B", "C", "D"];
   var app = document.getElementById("app");
   // 版本號：和 sw.js 的 VER 保持一致，改程式時兩邊一起加一
-  var APP_VER = "ks-v77", APP_DATE = "2026-11-13";
+  var APP_VER = "ks-v78", APP_DATE = "2026-11-15";
 
   // ---------- 儲存 ----------
   var KEY = "ks_v1";
@@ -2284,9 +2284,10 @@
     } else if (b.kind === "flow") {
       var fl = h("div", { class: "flow" });
       b.items.forEach(function (it, i) {
-        if (i) fl.appendChild(h("div", { class: "arrow", "aria-hidden": "true" }));
         var st = h("div", { class: "st" }), sd = it[1] ? h("div", { class: "sd" }) : null;
         if (fill && b.cells) { fill(st, b.cells[ix++]); if (sd) fill(sd, b.cells[ix++]); } else { st.appendChild(inline(it[0])); if (sd) sd.appendChild(inline(it[1])); }
+        // 句尾補句號，瀏覽器朗讀才會停頓
+        [st, sd].forEach(function (el) { if (el && !/[。！？.!?；;：:…」）)]$/.test(el.textContent.replace(/\s+$/, ""))) el.appendChild(document.createTextNode("。")); });
         fl.appendChild(h("div", { class: "step" }, st, sd));
       });
       fig.appendChild(fl);
