@@ -95,6 +95,10 @@
       });
       if (Object.keys(u).length) o._u = u;
       if (a._bx || b._bx) o._bx = Object.assign({}, a._bx, b._bx);   // 當天的加碼清單：聯集
+      if (a._est || b._est) {   // 章任務當天預估（ks-v80）：每個任務取最早記下的
+        var ea = a._est || {}, eb = b._est || {}; o._est = {};
+        Object.keys(ea).concat(Object.keys(eb)).forEach(function (t) { var x = ea[t], y = eb[t]; o._est[t] = !x ? y : !y ? x : num(y.ts) < num(x.ts) ? y : x; });
+      }
       o._t = Math.max(num(a._t), num(b._t));
     });
 

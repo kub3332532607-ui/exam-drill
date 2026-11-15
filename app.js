@@ -3,7 +3,7 @@
   var KS = window.KS, LET = ["A", "B", "C", "D"];
   var app = document.getElementById("app");
   // 版本號：和 sw.js 的 VER 保持一致，改程式時兩邊一起加一
-  var APP_VER = "ks-v79", APP_DATE = "2026-11-15";
+  var APP_VER = "ks-v80", APP_DATE = "2026-11-15";
 
   // ---------- 儲存 ----------
   var KEY = "ks_v1";
@@ -293,12 +293,20 @@
     return (qsCache[sid] = { r: r, t: t, w: 2 * t / (1 + 2 * r), real: N >= 20 && M > 0, att: att });
   }
   // ks-v77：章任務副標只留要做什麼（總分鐘看右邊按鈕）。讀完的章不顯示讀的部分，題目做完不顯示題目
+  // ks-v80：副標固定寫成「課文…・題目…」；今天讀了／做了多少看右邊按鈕（今天讀＋做題／當天預估）
   function chEst(ci) {
-    var rd = ci.done ? "" : (ci.n ? "剩 " : "讀 ") + ci.rm + " 分", q = ci.qn ? "題目 " + ci.qn + " 題 " + ci.qm + " 分" : "";
-    return rd && q ? rd + "＋" + q : rd || q || "課文與題目都完成了";
+    if (ci.done) return ci.qn ? "課文讀完 ✓・題目還剩 " + ci.qn + " 題" : "課文和題目都完成 ✓";
+    if (ci.n) return "課文已讀 " + ci.n + "/" + ci.tot + " 節，剩 " + ci.rm + " 分" + (ci.qn ? "・題目 " + ci.qn + " 題" : "");
+    return "課文 " + ci.rm + " 分" + (ci.qn ? "＋題目 " + ci.qn + " 題 " + ci.qm + " 分" : "");
   }
-  // 章任務的做題時間（計時中停在做題畫面，記成 chq:）
-  function chqTxt(d, key) { var q = taskMin(d, "chq:" + key); return q ? "・今天做題 " + q + " 分" : ""; }
+  // ks-v80：章任務當天的預估分鐘固定在第一次排出來時（plan[日]._est[任務]＝{m, ts}），整天不隨讀速、剩餘題數改變
+  function estMin(d, k, m) {
+    var p = S.plan[d] = S.plan[d] || {}, e = p._est = p._est || {};
+    if (!e[k]) { e[k] = { m: m, ts: Date.now() }; p._t = Date.now(); save(); }
+    return e[k].m;
+  }
+  // 章任務今天用掉的分鐘：讀課文（ch:）＋做題（chq:）
+  function chUsed(d, id) { return taskMin(d, id) + (id.indexOf("ch:") === 0 ? taskMin(d, "chq:" + id.slice(3)) : 0); }
   function qMinAll(key) { var m = 0; Object.keys(S.tl).forEach(function (i) { var x = S.tl[i]; if (!x.del && x.k === "chq:" + key) m += x.m; }); return m; }
   function chMin(key) { var m = 0; Object.keys(S.tl).forEach(function (i) { var x = S.tl[i]; if (!x.del && x.k === "ch:" + key) m += x.m; }); return m; }
   // 每天可排給「讀章＋章題目」的分鐘：看最近 7 天（不含今天）有讀的日子平均時數的八成五（其餘給單字、英文、國文），限 80–210（ks-v71 前只算讀章：七成、限 150）；資料不足用 170 分估
@@ -456,13 +464,13 @@
         if (!(ci.d === today || (pl0[k] && !inBx))) return;
         if (ci.done && !pl0[k] && !(pl0._nt && pl0._nt[k])) { pl0[k] = Date.now(); pl0._t = Date.now(); save(); }
         todays.push(ci);
-        add(k, subj(ci.sid).name + "：第 " + ci.no + " 章" + (ci.shift ? "（原訂 " + md(ci.od) + "）" : ""), ci.c.title + (ci.n && !ci.done ? "・已讀 " + ci.n + "/" + ci.tot + " 節" : "") + "・" + chEst(ci) + chqTxt(today, ci.key), ci.href, ci.min, 0, ci.sid);
+        add(k, subj(ci.sid).name + "：第 " + ci.no + " 章" + (ci.shift ? "（原訂 " + md(ci.od) + "）" : ""), ci.c.title + "・" + chEst(ci), ci.href, estMin(today, k, ci.min), 0, ci.sid);
       });
       // 今天的章都讀完了：往前拉下一章，有力氣再讀（讀完就不會再出現在後面的日子）
       var allDone = todays.length && todays.every(function (ci) { return ci.done; });
       if (allDone || (!todays.length && !isBuf)) {
         var nxt = L.filter(function (ci) { return !ci.done && ci.d > today; })[0];
-        if (nxt) add("ch:" + nxt.key, "提前讀：" + subj(nxt.sid).name + " 第 " + nxt.no + " 章", nxt.c.title + "・原排 " + md(nxt.d) + "，讀完後面就不再排它", nxt.href, nxt.min, 1, nxt.sid);
+        if (nxt) add("ch:" + nxt.key, "提前讀：" + subj(nxt.sid).name + " 第 " + nxt.no + " 章", nxt.c.title + "・原排 " + md(nxt.d) + "，讀完後面就不再排它", nxt.href, estMin(today, "ch:" + nxt.key, nxt.min), 1, nxt.sid);
       }
       if (isBuf) {
         // 錯題重做：本週答錯（或加入錯題本）的題目，每題約 1.5 分（重做＋看訂正），限 20–90 分
@@ -496,7 +504,7 @@
       stageTasks(1, 15);
       add("eng", "英文 10 題", "保持手感", "#/s/eng/ex", 20, 1, "eng");
       if (wb.tot) add("wr", "其他科錯題", "共 " + wb.tot + " 題", "#/s/" + top + "/wr", 30, 1, top);
-      schedList(today).forEach(function (ci) { if (!ci.done && ci.d <= today) add("ch:" + ci.key, "補讀：" + subj(ci.sid).name + "第 " + ci.no + " 章", ci.c.title + "・已讀 " + ci.n + "/" + ci.tot + " 節", ci.href, ci.min, 1, ci.sid); });
+      schedList(today).forEach(function (ci) { if (!ci.done && ci.d <= today) add("ch:" + ci.key, "補讀：" + subj(ci.sid).name + "第 " + ci.no + " 章", ci.c.title + "・" + chEst(ci), ci.href, estMin(today, "ch:" + ci.key, ci.min), 1, ci.sid); });
     } else if (phase === "C") {
       // 收尾：不做新題
       vocab0(20);
@@ -879,7 +887,7 @@
     if (ok && !pl._ok) { pl._ok = Date.now(); save(); } else if (!ok && pl._ok) { delete pl._ok; save(); }
     var cds = EXAMS.map(function (e) { var n = daysTo(e.d); return n >= 0 ? h("div", { class: "cd" }, h("div", { class: "cdn", text: String(n) }), h("div", { class: "cdl", text: "天・" + e.name })) : null; });
     function row(t) {
-      var on = !!pl[t.id], used = taskMin(P.date, t.id), run = S.run && S.run.k === t.id && S.run.d === P.date;
+      var on = !!pl[t.id], used = chUsed(P.date, t.id), run = S.run && S.run.k === t.id && S.run.d === P.date;
       var box = h("button", { class: "tk-box" + (on ? " on" : ""), "aria-label": on ? "取消完成" : "完成", text: on ? "✓" : "", onclick: function () {
         var cif = t.id.indexOf("ch:") === 0 ? chInfo(t.id.slice(3)) : null;
         if (pl[t.id]) {
